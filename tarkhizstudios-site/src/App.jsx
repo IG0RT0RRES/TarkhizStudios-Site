@@ -1,25 +1,74 @@
 import React from 'react';
-import Navbar from './components/Navbar';
-import ContactForm from './components/ContactForm';
-import Comments from './components/Comments';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
-export default function App() {
+// Importações dos componentes
+import Navbar from './components/Navbar.jsx';
+import Hero from './components/Hero.jsx';
+import Projects from './components/Projects.jsx';
+import Comments from './components/Comments.jsx';
+import ContactForm from './components/ContactForm.jsx';
+
+function App() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans antialiased">
-      <Navbar />
-      <main className="pt-24 space-y-12">
-        <section className="text-center py-12 px-4">
-          <h1 className="text-5xl font-extrabold mb-4 bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
-            Desenvolvedor Full Stack & Mobile
-          </h1>
-          <p className="text-slate-400 text-lg max-w-2xl mx-auto">
-            Bem-vindo ao meu espaço! Aqui compartilho meus projetos, soluções e experimentos em software.
-          </p>
-        </section>
+      <BrowserRouter>
+        {/* Navbar fixa no topo */}
+        <Navbar />
 
-        <Comments />
-        <ContactForm />
-      </main>
+        <Routes>
+          {/* Landing Page Completa */}
+          <Route
+            path="/"
+            element={
+              <main className="space-y-12 pt-24 pb-12">
+                <Hero />
+                <Projects />
+                <Comments />
+                <ContactForm />
+              </main>
+            }
+          />
+
+          {/* Rotas para visualização isolada das seções */}
+          <Route
+            path="/projetos"
+            element={
+              <main className="pt-24 pb-12">
+                <Projects />
+              </main>
+            }
+          />
+          <Route
+            path="/comentarios"
+            element={
+              <main className="pt-24 pb-12">
+                <Comments />
+              </main>
+            }
+          />
+          <Route
+            path="/contato"
+            element={
+              <main className="pt-24 pb-12">
+                <ContactForm />
+              </main>
+            }
+          />
+
+          {/* Tratamento de Rota Não Encontrada (404) */}
+          <Route
+            path="*"
+            element={
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+                <h1 className="text-4xl font-bold text-red-500 mb-2">404</h1>
+                <p className="text-xl text-slate-300">Página Não Encontrada</p>
+              </div>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
     </div>
   );
 }
+
+export default App;
