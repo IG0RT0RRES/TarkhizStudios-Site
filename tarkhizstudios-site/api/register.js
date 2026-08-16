@@ -4,7 +4,7 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
-  // 1. Configuração de CORS para requisições externas/Unity
+  // 1. Configuração de CORS para chamadas da Unity / Front-end
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
@@ -27,16 +27,20 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2. Captura dos dados enviados (suporta JSON ou x-www-form-urlencoded)
+  // 2. Captura de todos os dados enviados pelo Unity (suporta JSON e x-www-form-urlencoded)
   const body = req.body || {};
   const username = body.username || body.UserName || "";
   const nickname = body.nickname || body.NickName || "";
   const email = body.email || body.Email || "";
   const password = body.password || body.Password || "";
   const icon = body.icon || body.avatar_id || body.IconBase64 || "avatar-0";
-  const gender = body.gender || body.Gender || "";
+  
+  // Tratamento dos novos campos solicitados:
   const birthday = body.birthday || body.Birthday || "";
-  const location = body.location || body.Location || "";
+  const gender = parseInt(body.gender ?? body.Gender ?? 0, 10); // 0: Masculino, 1: Feminino, 2: Non-binary
+  const location = parseInt(body.location ?? body.Location ?? 0, 10); // 0 a 15 (Índices dos países/bandeiras)
+  const status = parseInt(body.status ?? body.Status ?? 1, 10); // 0: Ativo, 1: Aprovado, 2: Rejeitado
+  
   const accountdate = body.accountdate || body.AccountDate || new Date().toISOString().split('T')[0];
   const authenticator = body.authenticator || body.Authenticator || "";
   const achievement = body.achievement || body.Achievement || "";
@@ -61,12 +65,11 @@ export default async function handler(req, res) {
       throw searchError;
     }
 
-    // Se já existir, retorna os dados no formato PascalCase esperado
     if (existingProfile) {
       return res.status(200).json(formatProfileObject(existingProfile, icon));
     }
 
-    // 4. Criar Novo Perfil se usuário, senha e e-mail forem informados
+    // 4. Validar dados obrigatórios para criação
     if (!username || !password || !email) {
       return res.status(400).json({ 
         error: "Dados insuficientes para criação. Requer: username, password e email." 
@@ -75,7 +78,7 @@ export default async function handler(req, res) {
 
     const newUserId = crypto.randomUUID();
 
-    // Inserção na tabela public.profiles
+    // 5. Inserção com todos os campos na tabela profiles
     const { data: insertedProfile, error: insertError } = await supabase
       .from('profiles')
       .insert([
@@ -85,6 +88,10 @@ export default async function handler(req, res) {
           nickname: nickname,
           score: score,
           avatar_id: icon,
+          gender: gender,
+          birthday: birthday,
+          location: location,
+          status: status,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }
@@ -96,7 +103,7 @@ export default async function handler(req, res) {
       throw insertError;
     }
 
-    // Inicialização da tabela user_properties
+    // 6. Inicialização das propriedades adicionais do jogador
     const { error: propsError } = await supabase
       .from('user_properties')
       .insert([
@@ -113,19 +120,15 @@ export default async function handler(req, res) {
       console.warn("Aviso ao criar user_properties:", propsError.message);
     }
 
-    // Retorna a estrutura exatamente no formato antigo formatProfileObject
+    // 7. Retorna a estrutura no formato PascalCase esperada pelo Unity
     const newProfileData = {
       ...insertedProfile,
-      gender,
       email,
-      birthday,
-      location,
       password,
-      authenticator,
       accountdate,
+      authenticator,
       tokenfacebook,
-      achievement,
-      status: 1
+      achievement
     };
 
     return res.status(200).json(formatProfileObject(newProfileData, icon));
@@ -138,18 +141,18 @@ export default async function handler(req, res) {
   }
 }
 
-// Função para padronizar o JSON retornado conforme o método antigo PHP
+// Função de formatação para manter paridade com o C# do Unity
 function formatProfileObject(data, iconFallback) {
   return {
     ProfileId: data.id || 0,
-    Status: data.status ?? 1,
+    Status: Number(data.status ?? 1),
     UserName: data.username || "",
     NickName: data.nickname || "",
     AccountDate: data.accountdate || data.created_at || "",
-    Gender: data.gender || "",
+    Gender: Number(data.gender ?? 0),
     Email: data.email || "",
     Birthday: data.birthday || "",
-    Location: data.location || "",
+    Location: Number(data.location ?? 0),
     Password: data.password || "",
     Authenticator: data.authenticator || "",
     Score: Number(data.score || 0),
