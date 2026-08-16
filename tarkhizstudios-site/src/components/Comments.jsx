@@ -4,7 +4,7 @@ import { MessageSquare, Send, CheckCircle2, AlertCircle, User } from 'lucide-rea
 
 export default function Comments() {
   const [commentsList, setCommentsList] = useState([]);
-  const [formData, setFormData] = useState({ author_name: '', content: '' });
+  const [formData, setFormData] = useState({ name: '', content: '' });
   const [status, setStatus] = useState({ loading: false, success: false, error: null });
 
   // Busca os comentários salvos no Supabase
@@ -27,14 +27,32 @@ export default function Comments() {
     e.preventDefault();
     setStatus({ loading: true, success: false, error: null });
 
-    const { error } = await supabase.from('comments').insert([formData]);
+    // Envia o payload mapeando tanto 'name' quanto 'author_name' para evitar incompatibilidade
+    const payload = {
+      name: formData.name,
+      author_name: formData.name,
+      content: formData.content,
+      message: formData.content
+    };
+
+    const { error } = await supabase.from('comments').insert([payload]);
 
     if (error) {
-      setStatus({ loading: false, success: false, error: error.message });
+      // Se houver erro de coluna inexistente no payload completo, tenta um envio mais simples
+      const fallbackPayload = { name: formData.name, content: formData.content };
+      const { error: fallbackError } = await supabase.from('comments').insert([fallbackPayload]);
+
+      if (fallbackError) {
+        setStatus({ loading: false, success: false, error: fallbackError.message });
+      } else {
+        setStatus({ loading: false, success: true, error: null });
+        setFormData({ name: '', content: '' });
+        fetchComments();
+      }
     } else {
       setStatus({ loading: false, success: true, error: null });
-      setFormData({ author_name: '', content: '' });
-      fetchComments(); // Atualiza a lista automaticamente
+      setFormData({ name: '', content: '' });
+      fetchComments();
     }
   };
 
@@ -54,8 +72,8 @@ export default function Comments() {
             type="text"
             required
             className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-            value={formData.author_name}
-            onChange={(e) => setFormData({ ...formData, author_name: e.target.value })}
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
           />
         </div>
 
@@ -103,9 +121,10 @@ export default function Comments() {
             <div key={item.id || item.created_at} className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 space-y-2">
               <div className="flex items-center gap-2 text-emerald-400 font-semibold">
                 <User className="w-4 h-4" />
-                <span>{item.author_name}</span>
+                {/* Trata fallbacks para garantir a exibição do nome do autor */}
+                <span>{item.name || item.author_name || item.author || 'Anônimo'}</span>
               </div>
-              <p className="text-slate-200 text-sm leading-relaxed">{item.content}</p>
+              <p className="text-slate-200 text-sm leading-relaxed">{item.content || item.message}</p>
             </div>
           ))
         )}
