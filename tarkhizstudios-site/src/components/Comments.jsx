@@ -4,7 +4,7 @@ import { MessageSquare, Send, CheckCircle2, AlertCircle, User } from 'lucide-rea
 
 export default function Comments() {
   const [commentsList, setCommentsList] = useState([]);
-  const [formData, setFormData] = useState({ name: '', content: '' });
+  const [formData, setFormData] = useState({ author: '', content: '' });
   const [status, setStatus] = useState({ loading: false, success: false, error: null });
 
   // Busca os comentários salvos no Supabase
@@ -27,31 +27,20 @@ export default function Comments() {
     e.preventDefault();
     setStatus({ loading: true, success: false, error: null });
 
-    // Envia o payload mapeando tanto 'name' quanto 'author_name' para evitar incompatibilidade
-    const payload = {
-      name: formData.name,
-      author_name: formData.name,
-      content: formData.content,
-      message: formData.content
-    };
-
-    const { error } = await supabase.from('comments').insert([payload]);
+    // Envia exatamente as colunas presentes no seu banco: author, content e project_slug
+    const { error } = await supabase.from('comments').insert([
+      {
+        author: formData.author,
+        content: formData.content,
+        project_slug: 'general',
+      },
+    ]);
 
     if (error) {
-      // Se houver erro de coluna inexistente no payload completo, tenta um envio mais simples
-      const fallbackPayload = { name: formData.name, content: formData.content };
-      const { error: fallbackError } = await supabase.from('comments').insert([fallbackPayload]);
-
-      if (fallbackError) {
-        setStatus({ loading: false, success: false, error: fallbackError.message });
-      } else {
-        setStatus({ loading: false, success: true, error: null });
-        setFormData({ name: '', content: '' });
-        fetchComments();
-      }
+      setStatus({ loading: false, success: false, error: error.message });
     } else {
       setStatus({ loading: false, success: true, error: null });
-      setFormData({ name: '', content: '' });
+      setFormData({ author: '', content: '' });
       fetchComments();
     }
   };
@@ -72,8 +61,8 @@ export default function Comments() {
             type="text"
             required
             className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            value={formData.author}
+            onChange={(e) => setFormData({ ...formData, author: e.target.value })}
           />
         </div>
 
@@ -92,14 +81,14 @@ export default function Comments() {
         <button
           type="submit"
           disabled={status.loading}
-          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2"
+          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
           {status.loading ? 'Publicando...' : <><Send className="w-4 h-4" /> Comentar</>}
         </button>
 
         {status.success && (
           <p className="text-green-400 text-sm flex items-center gap-2 mt-2">
-            <CheckCircle2 className="w-4 h-4" /> Comentário publicado!
+            <CheckCircle2 className="w-4 h-4" /> Comentário publicado com sucesso!
           </p>
         )}
         {status.error && (
@@ -121,10 +110,10 @@ export default function Comments() {
             <div key={item.id || item.created_at} className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 space-y-2">
               <div className="flex items-center gap-2 text-emerald-400 font-semibold">
                 <User className="w-4 h-4" />
-                {/* Trata fallbacks para garantir a exibição do nome do autor */}
-                <span>{item.name || item.author_name || item.author || 'Anônimo'}</span>
+                {/* Acessa a coluna 'author' vinda do Supabase */}
+                <span>{item.author || 'Anônimo'}</span>
               </div>
-              <p className="text-slate-200 text-sm leading-relaxed">{item.content || item.message}</p>
+              <p className="text-slate-200 text-sm leading-relaxed">{item.content}</p>
             </div>
           ))
         )}
