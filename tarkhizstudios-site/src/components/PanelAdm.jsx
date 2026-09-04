@@ -7,7 +7,7 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'SUA_SUPABASE_SERVICE_ROLE_KEY'
 );
 
-export default function GestorLicencas() {
+export default function PanelAdm() {
   const [abaAtiva, setAbaAtiva] = useState('cadastro'); // 'cadastro' ou 'atualizacao'
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null);
