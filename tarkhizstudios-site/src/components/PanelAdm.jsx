@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL_GB
-const supabaseAnonKey = import.meta.env.SUPABASE_ANON_KEY_GB
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL_GB || process.env.VITE_SUPABASE_URL_GB
+const supabaseAnonKey = import.meta.env.SUPABASE_ANON_KEY_GB || process.env.SUPABASE_PRIVATE_KEY_GB
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
