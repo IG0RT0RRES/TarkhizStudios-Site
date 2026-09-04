@@ -127,7 +127,6 @@ export default function PanelAdm() {
   const buscarLicencasDoBanco = async () => {
     setLoadingLista(true);
     try {
-      // Fazendo o JOIN entre licencas e colaboradores
       const { data, error } = await supabase
         .from('licencas')
         .select(`
@@ -158,7 +157,6 @@ export default function PanelAdm() {
     }
   };
 
-  // Sempre que mudar para a aba 'lista', carrega os dados do banco
   useEffect(() => {
     if (abaAtiva === 'lista' && isAdmin) {
       buscarLicencasDoBanco();
