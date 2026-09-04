@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(import.meta.env.VITE_SUPABASE_URL_GB,import.meta.env.SUPABASE_SECRET_KEY_GB);
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL_GB || "SUA_CHAVE",
+  import.meta.env.SUPABASE_SECRET_KEY_GB || "SUA_CHAVE"
+);
 
 export default function PanelAdm() {
   const [sessao, setSessao] = useState(null);
