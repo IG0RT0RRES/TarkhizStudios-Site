@@ -56,28 +56,43 @@ export default function PanelAdm() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const checarSeEhAdmin = async (email) => {
+ const checarSeEhAdmin = async (email) => {
     try {
-      const { data, error } = await supabase
-        .from('licencas')
-        .select('admin, colaboradores!inner(email)')
-        .eq('colaboradores.email', email)
+      // 1. Busca o colaborador pelo email
+      const { data: colabData, error: colabError } = await supabase
+        .from('colaboradores')
+        .select('id')
+        .eq('email', email)
         .maybeSingle();
 
-      if (error) {
-        console.error('Erro ao buscar admin:', error);
+      if (colabError || !colabData) {
+        setIsAdmin(false);
+        setErroLogin('E-mail não encontrado na base de colaboradores.');
+        await supabase.auth.signOut();
+        return;
+      }
+
+      // 2. Verifica se existe uma licença de admin vinculada a esse colaborador
+      const { data: licencaData, error: licencaError } = await supabase
+        .from('licencas')
+        .select('admin')
+        .eq('colaborador_id', colabData.id)
+        .maybeSingle();
+
+      if (licencaError) {
+        console.error('Erro ao buscar licença:', licencaError);
         setIsAdmin(false);
         setErroLogin('Erro ao validar permissões no banco.');
         await supabase.auth.signOut();
         return;
       }
 
-      if (data && data.admin === true) {
+      if (licencaData && licencaData.admin === true) {
         setIsAdmin(true);
         setErroLogin('');
       } else {
         setIsAdmin(false);
-        setErroLogin('Acesso negado: Esta conta não possui privilégios de Administrador na tabela.');
+        setErroLogin('Acesso negado: Esta conta não possui privilégios de Administrador.');
         await supabase.auth.signOut();
       }
     } catch (err) {
@@ -86,7 +101,6 @@ export default function PanelAdm() {
       setErroLogin('Erro interno ao validar permissões.');
     }
   };
-
   const handleLogin = async (e) => {
   e.preventDefault();
   setLoadingAuth(true);
