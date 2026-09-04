@@ -37,6 +37,16 @@ export default function PanelAdm() {
     dias: '30',
   });
 
+  // Função para normalizar textos (remover acentos e padronizar minúsculas)
+  const normalizarTexto = (texto) => {
+    if (!texto) return '';
+    return texto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  };
+
   useEffect(() => {
     async function verificarSessao() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -123,7 +133,6 @@ export default function PanelAdm() {
     setSessao(null);
   };
 
-  // Função para buscar licenças e colaboradores do banco
   const buscarLicencasDoBanco = async () => {
     setLoadingLista(true);
     try {
@@ -459,12 +468,14 @@ export default function PanelAdm() {
     );
   }
 
+  // Filtragem utilizando a normalização de texto para ignorar acentos e letras maiúsculas/minúsculas
   const licencasFiltradas = licencasCadastradas.filter(item => {
-    const nome = item.colaboradores?.nome || '';
-    const matricula = item.colaboradores?.matricula || '';
-    const chave = item.chave || '';
-    const termo = filtroBusca.toLowerCase();
-    return nome.toLowerCase().includes(termo) || matricula.toLowerCase().includes(termo) || chave.toLowerCase().includes(termo);
+    const nome = normalizarTexto(item.colaboradores?.nome);
+    const matricula = normalizarTexto(item.colaboradores?.matricula);
+    const chave = normalizarTexto(item.chave);
+    const termo = normalizarTexto(filtroBusca);
+
+    return nome.includes(termo) || matricula.includes(termo) || chave.includes(termo);
   });
 
   return (
