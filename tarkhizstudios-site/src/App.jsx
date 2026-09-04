@@ -55,7 +55,7 @@ function App() {
               </main>
             }
           />
-          <Route path="/adm" element={ <main className="pt-24 pb-12"> <Adm /></main> }/>
+          <Route path="/adm" element={ <main className="pt-24 pb-12"> <panel_adm/></main> }/>
 
           {/* Tratamento de Rota Não Encontrada (404) */}
           <Route
