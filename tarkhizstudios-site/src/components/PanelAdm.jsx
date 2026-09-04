@@ -1,13 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Inicialize o Supabase (substitua pelas suas variáveis ou use import.meta.env se estiver no Vite/Next)
+// Inicialize o Supabase
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL || 'SUA_SUPABASE_URL',
   import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'SUA_SUPABASE_SERVICE_ROLE_KEY'
 );
 
 export default function PanelAdm() {
+  const [sessao, setSessao] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+
+  // Estados para o Login
+  const [emailLogin, setEmailLogin] = useState('');
+  const [senhaLogin, setSenhaLogin] = useState('');
+  const [erroLogin, setErroLogin] = useState('');
+
+  // Estados do Painel
   const [abaAtiva, setAbaAtiva] = useState('cadastro'); // 'cadastro' ou 'atualizacao'
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null);
@@ -27,7 +37,78 @@ export default function PanelAdm() {
     dias: '30',
   });
 
-  // Funções Auxiliares (Mesma lógica do backend/terminal)
+  // Validação de Sessão e Permissão Admin
+  useEffect(() => {
+    async function verificarSessao() {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSessao(session);
+      if (session) {
+        await checarSeEhAdmin(session.user.email);
+      }
+      setLoadingAuth(false);
+    }
+    verificarSessao();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSessao(session);
+      if (session) {
+        await checarSeEhAdmin(session.user.email);
+      } else {
+        setIsAdmin(false);
+      }
+      setLoadingAuth(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const checarSeEhAdmin = async (email) => {
+    try {
+      const { data } = await supabase
+        .from('licencas')
+        .select('admin, colaboradores!inner(email)')
+        .eq('colaboradores.email', email)
+        .single();
+
+      if (data && data.admin === true) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+        setErroLogin('Acesso negado: Esta conta não possui privilégios de Administrador.');
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      setIsAdmin(false);
+      setErroLogin('Erro ao validar permissões de Administrador.');
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoadingAuth(true);
+    setErroLogin('');
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: emailLogin,
+      password: senhaLogin,
+    });
+
+    if (error) {
+      setErroLogin('E-mail ou senha incorretos.');
+      setLoadingAuth(false);
+    } else {
+      await checarSeEhAdmin(data.user.email);
+      setLoadingAuth(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setIsAdmin(false);
+    setSessao(null);
+  };
+
+  // Funções Auxiliares
   const gerarChave = () => {
     const letras = Array.from({ length: 4 }, () =>
       String.fromCharCode(65 + Math.floor(Math.random() * 26))
@@ -158,7 +239,6 @@ export default function PanelAdm() {
       const diasValidade = isDegustacao ? 3 : 30;
       const tipoLicenca = isDegustacao ? 'degustacao' : 'mensal';
 
-      // 1. Verifica ou cria colaborador
       let colaboradorId = null;
       const filtros = [];
       if (matricula) filtros.push(`matricula.eq.${matricula.trim()}`);
@@ -188,7 +268,6 @@ export default function PanelAdm() {
         colaboradorId = novoColab.id;
       }
 
-      // 2. Verifica licença existente
       const { data: licencas } = await supabase
         .from('licencas')
         .select('*')
@@ -197,7 +276,7 @@ export default function PanelAdm() {
       const licencaExistente = licencas && licencas.length > 0 ? licencas[0] : null;
 
       const agora = new Date();
-      agora.setHours(agora.getHours() - 3); // Fuso BR
+      agora.setHours(agora.getHours() - 3);
       let novaDataValidade = new Date(agora);
       let chaveUso = '';
       let isRenovacao = false;
@@ -241,7 +320,6 @@ export default function PanelAdm() {
       const colabFmt = matricula ? `${matricula} - ${nome.toUpperCase()}` : nome.toUpperCase();
       const statusEmail = isDegustacao ? 'degustacao' : (isRenovacao ? 'renovacao' : 'novo');
 
-      // Disparos
       await Promise.allSettled([
         enviarEmailJS(email, nome || 'Cliente', chaveUso, dataValidadeFmt, statusEmail),
         enviarWebhookDiscord(chaveUso, email || 'Não informado', nome || 'Cliente', colabFmt, whatsapp, dataAquisicaoFmt, dataValidadeFmt, isRenovacao, isDegustacao)
@@ -331,8 +409,76 @@ export default function PanelAdm() {
     }
   };
 
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center font-sans">
+        <p>Carregando autenticação...</p>
+      </div>
+    );
+  }
+
+  // 🔒 TELA DE LOGIN (Se não estiver autenticado ou não for administrador)
+  if (!sessao || !isAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6">
+          <h2 className="text-xl font-bold text-center mb-1">Painel Restrito</h2>
+          <p className="text-slate-400 text-sm text-center mb-6">Faça login com uma conta de Administrador</p>
+
+          {erroLogin && (
+            <div className="mb-4 p-3 bg-rose-950/40 border border-rose-500/50 text-rose-200 text-sm rounded-lg">
+              {erroLogin}
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs uppercase text-slate-400 font-semibold mb-1">E-mail</label>
+              <input
+                type="email"
+                required
+                value={emailLogin}
+                onChange={(e) => setEmailLogin(e.target.value)}
+                placeholder="admin@email.com"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs uppercase text-slate-400 font-semibold mb-1">Senha</label>
+              <input
+                type="password"
+                required
+                value={senhaLogin}
+                onChange={(e) => setSenhaLogin(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-500 font-semibold py-3 rounded-lg transition duration-200"
+            >
+              Entrar no Painel
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 🚀 PAINEL ADMINISTRATIVO COMPLETO
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-sans">
+      <div className="w-full max-w-xl flex justify-between items-center mb-4 px-2">
+        <span className="text-sm text-slate-400">Logado como: <strong className="text-slate-200">{sessao.user.email}</strong></span>
+        <button
+          onClick={handleLogout}
+          className="text-xs bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition"
+        >
+          Sair
+        </button>
+      </div>
+
       <div className="w-full max-w-xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
         {/* Cabeçalho */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-center">
