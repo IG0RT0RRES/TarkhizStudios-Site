@@ -7,7 +7,7 @@ import Hero from './components/Hero.jsx';
 import Projects from './components/Projects.jsx';
 import Comments from './components/Comments.jsx';
 import ContactForm from './components/ContactForm.jsx';
-import panel_adm from './components/panel_adm.jsx';
+import PanelAdm from './components/PanelAdm.jsx';
 
 function App() {
   return (
@@ -55,7 +55,7 @@ function App() {
               </main>
             }
           />
-          <Route path="/adm" element={ <main className="pt-24 pb-12"> <panel_adm/></main> }/>
+          <Route path="/adm" element={ <main className="pt-24 pb-12"> <PanelAdm/></main> }/>
 
           {/* Tratamento de Rota Não Encontrada (404) */}
           <Route
