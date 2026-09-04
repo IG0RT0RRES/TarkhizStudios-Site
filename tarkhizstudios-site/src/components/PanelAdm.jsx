@@ -88,24 +88,27 @@ export default function PanelAdm() {
   };
 
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoadingAuth(true);
-    setErroLogin('');
+  e.preventDefault();
+  setLoadingAuth(true);
+  setErroLogin('');
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: emailLogin.trim(),
-      password: senhaLogin,
-    });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: emailLogin.trim().toLowerCase(),
+    password: senhaLogin,
+  });
 
-    if (error) {
-      console.error('Erro Auth Supabase:', error.message);
-      setErroLogin('E-mail ou senha incorretos.');
-      setLoadingAuth(false);
-    } else {
-      await checarSeEhAdmin(data.user.email);
-      setLoadingAuth(false);
-    }
-  };
+  if (error) {
+    // Exibe a mensagem de erro REAL enviada pelo Supabase
+    console.error('Erro Auth:', error);
+    setErroLogin(`Erro Supabase: ${error.message}`);
+    setLoadingAuth(false);
+  } else {
+    // Se logou com sucesso no Auth, tenta checar o Admin
+    await checarSeEhAdmin(data.user.email);
+    setLoadingAuth(false);
+  }
+};
+
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
