@@ -16,13 +16,13 @@ export default function Projects() {
     },
     {
       id: 2,
-      title: 'Tarkhiz Studios Site',
-      category: 'Web Application',
-      description: 'Site institucional e portfólio responsivo com roteamento de SPA e banco de dados via Supabase.',
-      techs: ['React', 'Vite', 'Tailwind CSS v4', 'Supabase'],
+      title: 'Gestor de Baixas',
+      category: 'Mobile App / Flet',
+      description: 'Aplicativo de automação, envio de formularios e processamento de imagens para extração de dados',
+      techs: ['Python', "Flet", 'Node.js', 'Tailwind CSS v4', 'Supabase'],
       githubUrl: 'https://github.com/igOrtOrres',
-      liveUrl: 'https://tarkhiz-studios-site.vercel.app',
-      type: 'web',
+      liveUrl: 'https://play.google.com/store/apps/details?id=com.baixaforms.app',
+      type: 'mobile',
     },
   ];
 
