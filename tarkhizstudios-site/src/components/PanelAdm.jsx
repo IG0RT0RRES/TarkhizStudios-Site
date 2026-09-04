@@ -56,6 +56,7 @@ export default function PanelAdm() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Validação ajustada baseada no seu Schema real (admin fica na tabela licencas)
   const checarSeEhAdmin = async (email) => {
     try {
       const { data: colabData, error: colabError } = await supabase
@@ -202,7 +203,7 @@ export default function PanelAdm() {
     if (!webhookUrl) return;
 
     let titulo = 'Nova Licença Gerada (Painel Web)';
-    let descricao = 'Um novo colaborador foi cadastrado via interface React.';
+    let descricao = ' Um novo colaborador foi cadastrado via interface React.';
     let cor = 16711680;
     let conteudoBot = 'Novo acesso gerado via painel!';
 
@@ -268,6 +269,14 @@ export default function PanelAdm() {
 
       if (colabExistente) {
         colaboradorId = colabExistente.id;
+        // Atualiza dados caso tenham mudado
+        await supabase
+          .from('colaboradores')
+          .update({
+            nome: (nome || 'CLIENTE').toUpperCase(),
+            email: email ? email.trim().toLowerCase() : null,
+          })
+          .eq('id', colaboradorId);
       } else {
         const novaMatricula = matricula ? matricula.trim() : `TEMP_${Date.now()}`;
         const { data: novoColab, error: errColab } = await supabase
@@ -311,6 +320,7 @@ export default function PanelAdm() {
             data_validade: novaDataValidade.toISOString(),
             status: 'ativa',
             tipo: tipoLicenca,
+            whatsapp: whatsapp || licencaExistente.whatsapp,
           })
           .eq('chave', chaveUso);
       } else {
