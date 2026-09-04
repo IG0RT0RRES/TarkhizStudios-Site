@@ -5,5 +5,5 @@ import { ExternalLink, Github, Code2, Smartphone, Globe } from 'lucide-react';
 
 export default function panel_adm() {
 
-   return {}
+   return (<div><div/>);
 }
