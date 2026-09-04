@@ -260,35 +260,35 @@ export default function PanelAdm() {
       const diasValidade = isDegustacao ? 3 : 30;
       const tipoLicenca = isDegustacao ? 'degustacao' : 'mensal';
 
-      let colaboradorId = null;
-      const filtros = [];
-      if (matricula) filtros.push(`matricula.eq.${matricula.trim()}`);
-      if (email) filtros.push(`email.eq.${email.trim().toLowerCase()}`);
-
-      let colabExistente = null;
-      if (filtros.length > 0) {
-        const { data } = await supabase.from('colaboradores').select('id').or(filtros.join(','));
-        if (data && data.length > 0) colabExistente = data[0];
+      const matriculaLimpa = matricula ? matricula.trim() : '';
+      if (!matriculaLimpa) {
+        throw new Error('Informe a matrícula do colaborador.');
       }
 
-      if (colabExistente) {
-        colaboradorId = colabExistente.id;
+      // 1. Validar se o colaborador já existe na tabela oficial
+      const { data: colabsExistentes, error: errBusca } = await supabase
+        .from('colaboradores')
+        .select('*')
+        .eq('matricula', matriculaLimpa);
+
+      if (errBusca) throw new Error(errBusca.message);
+
+      if (!colabsExistentes || colabsExistentes.length === 0) {
+        throw new Error('Matrícula não encontrada na base de colaboradores válidos!');
+      }
+
+      const colabExistente = colabsExistentes[0];
+      const colaboradorId = colabExistente.id;
+
+      // Opcional: Atualizar dados de contato caso tenham sido preenchidos no form
+      if (email || nome || whatsapp) {
         await supabase.from('colaboradores').update({
-          nome: (nome || 'CLIENTE').toUpperCase(),
-          email: email ? email.trim().toLowerCase() : null,
+          nome: nome ? nome.toUpperCase() : colabExistente.nome,
+          email: email ? email.trim().toLowerCase() : colabExistente.email,
         }).eq('id', colaboradorId);
-      } else {
-        const novaMatricula = matricula ? matricula.trim() : `TEMP_${Date.now()}`;
-        const { data: novoColab, error: errColab } = await supabase.from('colaboradores').insert([{
-          matricula: novaMatricula,
-          nome: (nome || 'CLIENTE').toUpperCase(),
-          email: email ? email.trim().toLowerCase() : null,
-        }]).select('id').single();
-
-        if (errColab) throw new Error(errColab.message);
-        colaboradorId = novoColab.id;
       }
 
+      // 2. Verificar se já existe licença para este colaborador
       const { data: licencas } = await supabase.from('licencas').select('*').eq('colaborador_id', colaboradorId);
       const licencaExistente = licencas && licencas.length > 0 ? licencas[0] : null;
 
@@ -332,17 +332,19 @@ export default function PanelAdm() {
 
       const dataAquisicaoFmt = agora.toLocaleDateString('pt-BR');
       const dataValidadeFmt = novaDataValidade.toLocaleDateString('pt-BR');
-      const colabFmt = matricula ? `${matricula} - ${nome.toUpperCase()}` : nome.toUpperCase();
+      const nomeFinal = nome || colabExistente.nome;
+      const emailFinal = email || colabExistente.email;
+      const colabFmt = `${matriculaLimpa} - ${nomeFinal.toUpperCase()}`;
       const statusEmail = isDegustacao ? 'degustacao' : (isRenovacao ? 'renovacao' : 'novo');
 
       await Promise.allSettled([
-        enviarEmailJS(email, nome || 'Cliente', chaveUso, dataValidadeFmt, statusEmail),
-        enviarWebhookDiscord(chaveUso, email || 'Não informado', nome || 'Cliente', colabFmt, whatsapp, dataAquisicaoFmt, dataValidadeFmt, isRenovacao, isDegustacao)
+        enviarEmailJS(emailFinal, nomeFinal, chaveUso, dataValidadeFmt, statusEmail),
+        enviarWebhookDiscord(chaveUso, emailFinal || 'Não informado', nomeFinal, colabFmt, whatsapp, dataAquisicaoFmt, dataValidadeFmt, isRenovacao, isDegustacao)
       ]);
 
       setResultado({
         sucesso: true,
-        mensagem: 'Usuário e licença processados com sucesso!',
+        mensagem: 'Licença processada e vinculada com sucesso!',
         chave: chaveUso,
         validade: dataValidadeFmt,
       });
