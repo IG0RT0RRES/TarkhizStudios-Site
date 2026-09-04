@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Inicialize o Supabase
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL || 'SUA_SUPABASE_URL',
   import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'SUA_SUPABASE_SERVICE_ROLE_KEY'
@@ -12,17 +11,14 @@ export default function PanelAdm() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
 
-  // Estados para o Login
   const [emailLogin, setEmailLogin] = useState('');
   const [senhaLogin, setSenhaLogin] = useState('');
   const [erroLogin, setErroLogin] = useState('');
 
-  // Estados do Painel
-  const [abaAtiva, setAbaAtiva] = useState('cadastro'); // 'cadastro' ou 'atualizacao'
+  const [abaAtiva, setAbaAtiva] = useState('cadastro');
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null);
 
-  // Estados para Cadastro
   const [formCadastro, setFormCadastro] = useState({
     matricula: '',
     nome: '',
@@ -31,13 +27,11 @@ export default function PanelAdm() {
     isDegustacao: false,
   });
 
-  // Estados para Atualização
   const [formAtualizacao, setFormAtualizacao] = useState({
     matricula: '',
     dias: '30',
   });
 
-  // Validação de Sessão e Permissão Admin
   useEffect(() => {
     async function verificarSessao() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -64,22 +58,32 @@ export default function PanelAdm() {
 
   const checarSeEhAdmin = async (email) => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('licencas')
         .select('admin, colaboradores!inner(email)')
         .eq('colaboradores.email', email)
-        .single();
+        .maybeSingle();
+
+      if (error) {
+        console.error('Erro ao buscar admin:', error);
+        setIsAdmin(false);
+        setErroLogin('Erro ao validar permissões no banco.');
+        await supabase.auth.signOut();
+        return;
+      }
 
       if (data && data.admin === true) {
         setIsAdmin(true);
+        setErroLogin('');
       } else {
         setIsAdmin(false);
-        setErroLogin('Acesso negado: Esta conta não possui privilégios de Administrador.');
+        setErroLogin('Acesso negado: Esta conta não possui privilégios de Administrador na tabela.');
         await supabase.auth.signOut();
       }
     } catch (err) {
+      console.error('Exceção admin:', err);
       setIsAdmin(false);
-      setErroLogin('Erro ao validar permissões de Administrador.');
+      setErroLogin('Erro interno ao validar permissões.');
     }
   };
 
@@ -89,11 +93,12 @@ export default function PanelAdm() {
     setErroLogin('');
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: emailLogin,
+      email: emailLogin.trim(),
       password: senhaLogin,
     });
 
     if (error) {
+      console.error('Erro Auth Supabase:', error.message);
       setErroLogin('E-mail ou senha incorretos.');
       setLoadingAuth(false);
     } else {
@@ -108,7 +113,6 @@ export default function PanelAdm() {
     setSessao(null);
   };
 
-  // Funções Auxiliares
   const gerarChave = () => {
     const letras = Array.from({ length: 4 }, () =>
       String.fromCharCode(65 + Math.floor(Math.random() * 26))
@@ -228,7 +232,6 @@ export default function PanelAdm() {
     }
   };
 
-  // Ação: Cadastrar Novo Usuário
   const handleCadastrar = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -340,7 +343,6 @@ export default function PanelAdm() {
     }
   };
 
-  // Ação: Atualizar Licença
   const handleAtualizar = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -417,7 +419,6 @@ export default function PanelAdm() {
     );
   }
 
-  // 🔒 TELA DE LOGIN (Se não estiver autenticado ou não for administrador)
   if (!sessao || !isAdmin) {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
@@ -466,7 +467,6 @@ export default function PanelAdm() {
     );
   }
 
-  // 🚀 PAINEL ADMINISTRATIVO COMPLETO
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-sans">
       <div className="w-full max-w-xl flex justify-between items-center mb-4 px-2">
@@ -480,13 +480,11 @@ export default function PanelAdm() {
       </div>
 
       <div className="w-full max-w-xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
-        {/* Cabeçalho */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-center">
           <h1 className="text-2xl font-bold tracking-wide">Gestor de Licenças</h1>
           <p className="text-blue-100 text-sm mt-1">Painel Administrativo Rápido</p>
         </div>
 
-        {/* Abas de Navegação */}
         <div className="flex border-b border-slate-700">
           <button
             onClick={() => { setAbaAtiva('cadastro'); setResultado(null); }}
@@ -506,7 +504,6 @@ export default function PanelAdm() {
           </button>
         </div>
 
-        {/* Formulários */}
         <div className="p-6">
           {abaAtiva === 'cadastro' ? (
             <form onSubmit={handleCadastrar} className="space-y-4">
@@ -614,7 +611,6 @@ export default function PanelAdm() {
             </form>
           )}
 
-          {/* Feedback Visual / Resultado */}
           {resultado && (
             <div className={`mt-6 p-4 rounded-xl border ${resultado.sucesso ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200' : 'bg-rose-950/40 border-rose-500/50 text-rose-200'}`}>
               <p className="font-semibold">{resultado.mensagem}</p>
