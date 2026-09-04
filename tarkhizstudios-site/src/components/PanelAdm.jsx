@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL_GB || process.env.VITE_SUPABASE_URL_GB
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_SECRET_KEY_GB || process.env.VITE_SUPABASE_SECRET_KEY_GB
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL_GB || process.env.VITE_SUPABASE_URL_GB;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_SECRET_KEY_GB || process.env.VITE_SUPABASE_SECRET_KEY_GB;
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function PanelAdm() {
   const [sessao, setSessao] = useState(null);
@@ -56,9 +56,8 @@ export default function PanelAdm() {
     return () => subscription.unsubscribe();
   }, []);
 
- const checarSeEhAdmin = async (email) => {
+  const checarSeEhAdmin = async (email) => {
     try {
-      // 1. Busca o colaborador pelo email
       const { data: colabData, error: colabError } = await supabase
         .from('colaboradores')
         .select('id')
@@ -72,7 +71,6 @@ export default function PanelAdm() {
         return;
       }
 
-      // 2. Verifica se existe uma licença de admin vinculada a esse colaborador
       const { data: licencaData, error: licencaError } = await supabase
         .from('licencas')
         .select('admin')
@@ -101,28 +99,26 @@ export default function PanelAdm() {
       setErroLogin('Erro interno ao validar permissões.');
     }
   };
+
   const handleLogin = async (e) => {
-  e.preventDefault();
-  setLoadingAuth(true);
-  setErroLogin('');
+    e.preventDefault();
+    setLoadingAuth(true);
+    setErroLogin('');
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: emailLogin.trim().toLowerCase(),
-    password: senhaLogin,
-  });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: emailLogin.trim().toLowerCase(),
+      password: senhaLogin,
+    });
 
-  if (error) {
-    // Exibe a mensagem de erro REAL enviada pelo Supabase
-    console.error('Erro Auth:', error);
-    setErroLogin(`Erro Supabase: ${error.message}`);
-    setLoadingAuth(false);
-  } else {
-    // Se logou com sucesso no Auth, tenta checar o Admin
-    await checarSeEhAdmin(data.user.email);
-    setLoadingAuth(false);
-  }
-};
-
+    if (error) {
+      console.error('Erro Auth:', error);
+      setErroLogin(`Erro Supabase: ${error.message}`);
+      setLoadingAuth(false);
+    } else {
+      await checarSeEhAdmin(data.user.email);
+      setLoadingAuth(false);
+    }
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
