@@ -19,6 +19,11 @@ export default function PanelAdm() {
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null);
 
+  // Estados para a listagem
+  const [licencasCadastradas, setLicencasCadastradas] = useState([]);
+  const [loadingLista, setLoadingLista] = useState(false);
+  const [filtroBusca, setFiltroBusca] = useState('');
+
   const [formCadastro, setFormCadastro] = useState({
     matricula: '',
     nome: '',
@@ -56,7 +61,6 @@ export default function PanelAdm() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Validação ajustada baseada no seu Schema real (admin fica na tabela licencas)
   const checarSeEhAdmin = async (email) => {
     try {
       const { data: colabData, error: colabError } = await supabase
@@ -78,22 +82,15 @@ export default function PanelAdm() {
         .eq('colaborador_id', colabData.id)
         .maybeSingle();
 
-      if (licencaError) {
-        console.error('Erro ao buscar licença:', licencaError);
+      if (licencaError || !licencaData || licencaData.admin !== true) {
         setIsAdmin(false);
-        setErroLogin('Erro ao validar permissões no banco.');
+        setErroLogin('Acesso negado: Conta sem privilégios de Administrador.');
         await supabase.auth.signOut();
         return;
       }
 
-      if (licencaData && licencaData.admin === true) {
-        setIsAdmin(true);
-        setErroLogin('');
-      } else {
-        setIsAdmin(false);
-        setErroLogin('Acesso negado: Esta conta não possui privilégios de Administrador.');
-        await supabase.auth.signOut();
-      }
+      setIsAdmin(true);
+      setErroLogin('');
     } catch (err) {
       console.error('Exceção admin:', err);
       setIsAdmin(false);
@@ -112,7 +109,6 @@ export default function PanelAdm() {
     });
 
     if (error) {
-      console.error('Erro Auth:', error);
       setErroLogin(`Erro Supabase: ${error.message}`);
       setLoadingAuth(false);
     } else {
@@ -127,28 +123,64 @@ export default function PanelAdm() {
     setSessao(null);
   };
 
+  // Função para buscar licenças e colaboradores do banco
+  const buscarLicencasDoBanco = async () => {
+    setLoadingLista(true);
+    try {
+      // Fazendo o JOIN entre licencas e colaboradores
+      const { data, error } = await supabase
+        .from('licencas')
+        .select(`
+          id,
+          chave,
+          data_aquisicao,
+          data_validade,
+          status,
+          tipo,
+          whatsapp,
+          colaborador_id,
+          colaboradores (
+            id,
+            nome,
+            matricula,
+            email,
+            equipe
+          )
+        `)
+        .order('data_validade', { ascending: false });
+
+      if (error) throw error;
+      setLicencasCadastradas(data || []);
+    } catch (err) {
+      console.error('Erro ao buscar licenças:', err.message);
+    } finally {
+      setLoadingLista(false);
+    }
+  };
+
+  // Sempre que mudar para a aba 'lista', carrega os dados do banco
+  useEffect(() => {
+    if (abaAtiva === 'lista' && isAdmin) {
+      buscarLicencasDoBanco();
+    }
+  }, [abaAtiva, isAdmin]);
+
   const gerarChave = () => {
-    const letras = Array.from({ length: 4 }, () =>
-      String.fromCharCode(65 + Math.floor(Math.random() * 26))
-    ).join('');
-    const numeros = Array.from({ length: 4 }, () =>
-      Math.floor(Math.random() * 10)
-    ).join('');
+    const letras = Array.from({ length: 4 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
+    const numeros = Array.from({ length: 4 }, () => Math.floor(Math.random() * 10)).join('');
     return `${letras}${numeros}`;
   };
 
   const enviarEmailJS = async (customerEmail, nome, licenseKey, dataValidadeFormatada, tipoStatus) => {
-    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || process.env.EMAILJS_SERVICE_ID;
-    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || process.env.EMAILJS_TEMPLATE_ID;
-    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || process.env.EMAILJS_PUBLIC_KEY;
-    const privateKey = import.meta.env.VITE_EMAILJS_PRIVATE_KEY || process.env.EMAILJS_PRIVATE_KEY;
+    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+    const privateKey = import.meta.env.VITE_EMAILJS_PRIVATE_KEY;
 
     if (!serviceId || !templateId || !publicKey || !customerEmail) return;
 
     let configuracao = {
       cor_fundo: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-      cor_borda: '#3b82f6',
-      cor_texto: '#60a5fa',
       titulo_email: 'Acesso Liberado! 🚀',
       mensagem_corpo: 'Sua nova licença foi gerada com sucesso e já está pronta para uso no aplicativo.',
       conteudo_destaque: licenseKey,
@@ -156,25 +188,13 @@ export default function PanelAdm() {
     };
 
     if (tipoStatus === 'renovacao') {
-      configuracao = {
-        cor_fundo: 'linear-gradient(135deg, #059669, #047857)',
-        cor_borda: '#10b981',
-        cor_texto: '#34d399',
-        titulo_email: 'Licença Renovada! 🔄',
-        mensagem_corpo: 'O seu pagamento foi confirmado e a validade da sua licença foi estendida com sucesso.',
-        conteudo_destaque: licenseKey,
-        detalhe_rodape: `🗓️ Nova Validade: ${dataValidadeFormatada}`,
-      };
+      configuracao.titulo_email = 'Licença Renovada! 🔄';
+      configuracao.mensagem_corpo = 'O seu pagamento foi confirmado e a validade da sua licença foi estendida.';
+      configuracao.detalhe_rodape = `🗓️ Nova Validade: ${dataValidadeFormatada}`;
     } else if (tipoStatus === 'degustacao') {
-      configuracao = {
-        cor_fundo: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-        cor_borda: '#8b5cf6',
-        cor_texto: '#a78bfa',
-        titulo_email: 'Bem-vindo ao Teste Grátis! 🎁',
-        mensagem_corpo: 'Seu período de degustação foi ativado com sucesso. Aproveite seus dias de acesso total!',
-        conteudo_destaque: licenseKey,
-        detalhe_rodape: `⏱️ Válido até: ${dataValidadeFormatada}`,
-      };
+      configuracao.titulo_email = 'Teste Grátis Ativado! 🎁';
+      configuracao.mensagem_corpo = 'Seu período de degustação foi ativado com sucesso.';
+      configuracao.detalhe_rodape = `⏱️ Válido até: ${dataValidadeFormatada}`;
     }
 
     try {
@@ -186,11 +206,7 @@ export default function PanelAdm() {
           template_id: templateId,
           user_id: publicKey,
           accessToken: privateKey,
-          template_params: {
-            to_email: customerEmail,
-            to_name: nome,
-            ...configuracao,
-          },
+          template_params: { to_email: customerEmail, to_name: nome, ...configuracao },
         }),
       });
     } catch (err) {
@@ -203,43 +219,24 @@ export default function PanelAdm() {
     if (!webhookUrl) return;
 
     let titulo = 'Nova Licença Gerada (Painel Web)';
-    let descricao = ' Um novo colaborador foi cadastrado via interface React.';
     let cor = 16711680;
-    let conteudoBot = 'Novo acesso gerado via painel!';
-
-    if (isDegustacao) {
-      titulo = '🎁 Licença de Degustação Gerada (Painel Web)';
-      descricao = 'Período de teste grátis ativado.';
-      cor = 3447003;
-      conteudoBot = '🎁 Novo teste grátis (Painel)!';
-    } else if (isRenovacao) {
-      titulo = 'Licença Renovada / Estendida (Painel Web)';
-      descricao = 'A validade da chave foi estendida.';
-      cor = 3066993;
-      conteudoBot = 'Renovação concluída (Painel)!';
-    }
-
-    const tipoTexto = isDegustacao ? 'Degustação' : (isRenovacao ? 'Renovação' : 'Novo Colaborador');
+    if (isDegustacao) { titulo = '🎁 Licença de Degustação Gerada'; cor = 3447003; }
+    else if (isRenovacao) { titulo = 'Licença Renovada / Estendida'; cor = 3066993; }
 
     const fields = [
-      { name: 'Tipo', value: tipoTexto, inline: true },
+      { name: 'Tipo', value: isDegustacao ? 'Degustação' : (isRenovacao ? 'Renovação' : 'Novo Colaborador'), inline: true },
       { name: 'Colaborador', value: matriculaFormatada || nome, inline: false },
       { name: 'WhatsApp', value: whatsapp || 'Não informado', inline: true },
       { name: 'E-mail', value: customerEmail, inline: true },
-      { name: 'Data da Operação', value: dataAquisicao, inline: true },
-      { name: 'Código de Acesso', value: licenseKey, inline: true },
-      { name: 'Válido até', value: dataValidade, inline: true },
+      { name: 'Chave', value: licenseKey, inline: true },
+      { name: 'Validade', value: dataValidade, inline: true },
     ];
 
     try {
       await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: 'Gestor Painel Bot',
-          content: conteudoBot,
-          embeds: [{ title: titulo, description: descricao, color: cor, fields }],
-        }),
+        body: JSON.stringify({ username: 'Gestor Painel Bot', embeds: [{ title: titulo, color: cor, fields }] }),
       });
     } catch (err) {
       console.error('Erro Discord:', err);
@@ -269,35 +266,23 @@ export default function PanelAdm() {
 
       if (colabExistente) {
         colaboradorId = colabExistente.id;
-        // Atualiza dados caso tenham mudado
-        await supabase
-          .from('colaboradores')
-          .update({
-            nome: (nome || 'CLIENTE').toUpperCase(),
-            email: email ? email.trim().toLowerCase() : null,
-          })
-          .eq('id', colaboradorId);
+        await supabase.from('colaboradores').update({
+          nome: (nome || 'CLIENTE').toUpperCase(),
+          email: email ? email.trim().toLowerCase() : null,
+        }).eq('id', colaboradorId);
       } else {
         const novaMatricula = matricula ? matricula.trim() : `TEMP_${Date.now()}`;
-        const { data: novoColab, error: errColab } = await supabase
-          .from('colaboradores')
-          .insert([{
-            matricula: novaMatricula,
-            nome: (nome || 'CLIENTE').toUpperCase(),
-            email: email ? email.trim().toLowerCase() : null,
-          }])
-          .select('id')
-          .single();
+        const { data: novoColab, error: errColab } = await supabase.from('colaboradores').insert([{
+          matricula: novaMatricula,
+          nome: (nome || 'CLIENTE').toUpperCase(),
+          email: email ? email.trim().toLowerCase() : null,
+        }]).select('id').single();
 
         if (errColab) throw new Error(errColab.message);
         colaboradorId = novoColab.id;
       }
 
-      const { data: licencas } = await supabase
-        .from('licencas')
-        .select('*')
-        .eq('colaborador_id', colaboradorId);
-
+      const { data: licencas } = await supabase.from('licencas').select('*').eq('colaborador_id', colaboradorId);
       const licencaExistente = licencas && licencas.length > 0 ? licencas[0] : null;
 
       const agora = new Date();
@@ -314,15 +299,12 @@ export default function PanelAdm() {
         novaDataValidade = new Date(dataBase);
         novaDataValidade.setDate(novaDataValidade.getDate() + diasValidade);
 
-        await supabase
-          .from('licencas')
-          .update({
-            data_validade: novaDataValidade.toISOString(),
-            status: 'ativa',
-            tipo: tipoLicenca,
-            whatsapp: whatsapp || licencaExistente.whatsapp,
-          })
-          .eq('chave', chaveUso);
+        await supabase.from('licencas').update({
+          data_validade: novaDataValidade.toISOString(),
+          status: 'ativa',
+          tipo: tipoLicenca,
+          whatsapp: whatsapp || licencaExistente.whatsapp,
+        }).eq('chave', chaveUso);
       } else {
         chaveUso = gerarChave();
         novaDataValidade.setDate(agora.getDate() + diasValidade);
@@ -375,19 +357,11 @@ export default function PanelAdm() {
       const { matricula, dias } = formAtualizacao;
       const diasAdd = parseInt(dias) || 30;
 
-      const { data: colabs } = await supabase
-        .from('colaboradores')
-        .select('id, matricula, nome, email')
-        .eq('matricula', matricula.trim());
-
+      const { data: colabs } = await supabase.from('colaboradores').select('id, matricula, nome, email').eq('matricula', matricula.trim());
       if (!colabs || colabs.length === 0) throw new Error('Colaborador não encontrado com esta matrícula.');
 
       const colab = colabs[0];
-      const { data: licencas } = await supabase
-        .from('licencas')
-        .select('*')
-        .eq('colaborador_id', colab.id);
-
+      const { data: licencas } = await supabase.from('licencas').select('*').eq('colaborador_id', colab.id);
       if (!licencas || licencas.length === 0) throw new Error('Nenhuma licença encontrada para este colaborador.');
 
       const licenca = licencas[0];
@@ -400,14 +374,11 @@ export default function PanelAdm() {
       const novaDataValidade = new Date(dataBase);
       novaDataValidade.setDate(novaDataValidade.getDate() + diasAdd);
 
-      await supabase
-        .from('licencas')
-        .update({
-          data_validade: novaDataValidade.toISOString(),
-          status: 'ativa',
-          tipo: 'mensal',
-        })
-        .eq('chave', chaveUso);
+      await supabase.from('licencas').update({
+        data_validade: novaDataValidade.toISOString(),
+        status: 'ativa',
+        tipo: 'mensal',
+      }).eq('chave', chaveUso);
 
       const dataAquisicaoFmt = agora.toLocaleDateString('pt-BR');
       const dataValidadeFmt = novaDataValidade.toLocaleDateString('pt-BR');
@@ -490,9 +461,17 @@ export default function PanelAdm() {
     );
   }
 
+  const licencasFiltradas = licencasCadastradas.filter(item => {
+    const nome = item.colaboradores?.nome || '';
+    const matricula = item.colaboradores?.matricula || '';
+    const chave = item.chave || '';
+    const termo = filtroBusca.toLowerCase();
+    return nome.toLowerCase().includes(termo) || matricula.toLowerCase().includes(termo) || chave.toLowerCase().includes(termo);
+  });
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-sans">
-      <div className="w-full max-w-xl flex justify-between items-center mb-4 px-2">
+      <div className="w-full max-w-4xl flex justify-between items-center mb-4 px-2">
         <span className="text-sm text-slate-400">Logado como: <strong className="text-slate-200">{sessao.user.email}</strong></span>
         <button
           onClick={handleLogout}
@@ -502,12 +481,13 @@ export default function PanelAdm() {
         </button>
       </div>
 
-      <div className="w-full max-w-xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
+      <div className="w-full max-w-4xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-center">
           <h1 className="text-2xl font-bold tracking-wide">Gestor de Licenças</h1>
-          <p className="text-blue-100 text-sm mt-1">Painel Administrativo Rápido</p>
+          <p className="text-blue-100 text-sm mt-1">Painel Administrativo Completo</p>
         </div>
 
+        {/* Abas de Navegação */}
         <div className="flex border-b border-slate-700">
           <button
             onClick={() => { setAbaAtiva('cadastro'); setResultado(null); }}
@@ -525,11 +505,19 @@ export default function PanelAdm() {
           >
             2 - Atualizar Licença
           </button>
+          <button
+            onClick={() => { setAbaAtiva('lista'); setResultado(null); }}
+            className={`flex-1 py-3 text-sm font-semibold transition ${
+              abaAtiva === 'lista' ? 'bg-slate-700/50 text-blue-400 border-b-2 border-blue-500' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            3 - Ver Licenças Cadastradas
+          </button>
         </div>
 
         <div className="p-6">
-          {abaAtiva === 'cadastro' ? (
-            <form onSubmit={handleCadastrar} className="space-y-4">
+          {abaAtiva === 'cadastro' && (
+            <form onSubmit={handleCadastrar} className="space-y-4 max-w-xl mx-auto">
               <div>
                 <label className="block text-xs uppercase text-slate-400 font-semibold mb-1">Matrícula</label>
                 <input
@@ -598,8 +586,10 @@ export default function PanelAdm() {
                 {loading ? 'Processando...' : 'Cadastrar e Liberar Acesso'}
               </button>
             </form>
-          ) : (
-            <form onSubmit={handleAtualizar} className="space-y-4">
+          )}
+
+          {abaAtiva === 'atualizacao' && (
+            <form onSubmit={handleAtualizar} className="space-y-4 max-w-xl mx-auto">
               <div>
                 <label className="block text-xs uppercase text-slate-400 font-semibold mb-1">Matrícula do Colaborador</label>
                 <input
@@ -634,7 +624,77 @@ export default function PanelAdm() {
             </form>
           )}
 
-          {resultado && (
+          {abaAtiva === 'lista' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                <input
+                  type="text"
+                  value={filtroBusca}
+                  onChange={(e) => setFiltroBusca(e.target.value)}
+                  placeholder="Pesquisar por nome, matrícula ou chave..."
+                  className="w-full sm:w-80 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={buscarLicencasDoBanco}
+                  className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-4 py-2 rounded-lg transition"
+                >
+                  🔄 Atualizar Lista
+                </button>
+              </div>
+
+              {loadingLista ? (
+                <p className="text-center text-slate-400 py-8">Carregando licenças do banco...</p>
+              ) : (
+                <div className="overflow-x-auto border border-slate-700 rounded-xl">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-900 text-slate-400 uppercase text-xs">
+                      <tr>
+                        <th className="p-3">Colaborador / Matrícula</th>
+                        <th className="p-3">Chave</th>
+                        <th className="p-3">Tipo</th>
+                        <th className="p-3">Validade</th>
+                        <th className="p-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700">
+                      {licencasFiltradas.length > 0 ? (
+                        licencasFiltradas.map((item) => {
+                          const colab = item.colaboradores || {};
+                          const dataVal = new Date(item.data_validade).toLocaleDateString('pt-BR');
+                          const vencida = new Date(item.data_validade) < new Date();
+
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-700/30">
+                              <td className="p-3">
+                                <div className="font-semibold text-white">{colab.nome || 'Sem Nome'}</div>
+                                <div className="text-xs text-slate-400">Mat: {colab.matricula || 'N/A'}</div>
+                              </td>
+                              <td className="p-3 font-mono text-blue-400">{item.chave}</td>
+                              <td className="p-3 capitalize">{item.tipo || 'mensal'}</td>
+                              <td className="p-3">{dataVal}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                  vencida ? 'bg-rose-950 text-rose-300 border border-rose-500/30' : 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                                }`}>
+                                  {vencida ? 'Expirada' : (item.status || 'Ativa')}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan="5" className="text-center p-6 text-slate-400">Nenhuma licença encontrada.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {resultado && abaAtiva !== 'lista' && (
             <div className={`mt-6 p-4 rounded-xl border ${resultado.sucesso ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200' : 'bg-rose-950/40 border-rose-500/50 text-rose-200'}`}>
               <p className="font-semibold">{resultado.mensagem}</p>
               {resultado.sucesso && resultado.chave && (
