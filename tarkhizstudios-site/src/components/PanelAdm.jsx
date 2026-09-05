@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { FUNCIONARIOS_VALIDOS, normalizarTexto } from '../utils/funcionarios'; // Ajuste o caminho do import caso necessário
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL_GB || process.env.VITE_SUPABASE_URL_GB;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_SECRET_KEY_GB || process.env.VITE_SUPABASE_SECRET_KEY_GB;
@@ -36,16 +37,6 @@ export default function PanelAdm() {
     matricula: '',
     dias: '30',
   });
-
-  // Função para normalizar textos (remover acentos e padronizar minúsculas)
-  const normalizarTexto = (texto) => {
-    if (!texto) return '';
-    return texto
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
-  };
 
   useEffect(() => {
     async function verificarSessao() {
@@ -265,30 +256,44 @@ export default function PanelAdm() {
         throw new Error('Informe a matrícula do colaborador.');
       }
 
-      // 1. Validar se o colaborador já existe na tabela oficial
-      const { data: colabsExistentes, error: errBusca } = await supabase
+      // 1. Validar se a matrícula existe estritamente em FUNCIONARIOS_VALIDOS
+      const funcionarioValido = FUNCIONARIOS_VALIDOS.find(
+        (f) => String(f.matricula).trim() === matriculaLimpa
+      );
+
+      if (!funcionarioValido) {
+        throw new Error('Matrícula não encontrada na lista de funcionários válidos!');
+      }
+
+      // Utiliza o nome vindo do arquivo de funcionários válidos (ou do form se preferir)
+      const nomeOficial = funcionarioValido.nome || nome || 'CLIENTE';
+
+      // 2. Garantir que o colaborador exista na tabela 'colaboradores' do Supabase para manter a relação com a licença
+      let colaboradorId = null;
+      const { data: colabBanco } = await supabase
         .from('colaboradores')
-        .select('*')
-        .eq('matricula', matriculaLimpa);
+        .select('id')
+        .eq('matricula', matriculaLimpa)
+        .maybeSingle();
 
-      if (errBusca) throw new Error(errBusca.message);
-
-      if (!colabsExistentes || colabsExistentes.length === 0) {
-        throw new Error('Matrícula não encontrada na base de colaboradores válidos!');
-      }
-
-      const colabExistente = colabsExistentes[0];
-      const colaboradorId = colabExistente.id;
-
-      // Opcional: Atualizar dados de contato caso tenham sido preenchidos no form
-      if (email || nome || whatsapp) {
+      if (colabBanco) {
+        colaboradorId = colabBanco.id;
         await supabase.from('colaboradores').update({
-          nome: nome ? nome.toUpperCase() : colabExistente.nome,
-          email: email ? email.trim().toLowerCase() : colabExistente.email,
+          nome: nomeOficial.toUpperCase(),
+          email: email ? email.trim().toLowerCase() : null,
         }).eq('id', colaboradorId);
+      } else {
+        const { data: novoColab, error: errColab } = await supabase.from('colaboradores').insert([{
+          matricula: matriculaLimpa,
+          nome: nomeOficial.toUpperCase(),
+          email: email ? email.trim().toLowerCase() : null,
+        }]).select('id').single();
+
+        if (errColab) throw new Error(errColab.message);
+        colaboradorId = novoColab.id;
       }
 
-      // 2. Verificar se já existe licença para este colaborador
+      // 3. Verificar se já existe licença para este colaborador
       const { data: licencas } = await supabase.from('licencas').select('*').eq('colaborador_id', colaboradorId);
       const licencaExistente = licencas && licencas.length > 0 ? licencas[0] : null;
 
@@ -332,19 +337,18 @@ export default function PanelAdm() {
 
       const dataAquisicaoFmt = agora.toLocaleDateString('pt-BR');
       const dataValidadeFmt = novaDataValidade.toLocaleDateString('pt-BR');
-      const nomeFinal = nome || colabExistente.nome;
-      const emailFinal = email || colabExistente.email;
-      const colabFmt = `${matriculaLimpa} - ${nomeFinal.toUpperCase()}`;
+      const emailFinal = email || funcionarioValido.email || '';
+      const colabFmt = `${matriculaLimpa} - ${nomeOficial.toUpperCase()}`;
       const statusEmail = isDegustacao ? 'degustacao' : (isRenovacao ? 'renovacao' : 'novo');
 
       await Promise.allSettled([
-        enviarEmailJS(emailFinal, nomeFinal, chaveUso, dataValidadeFmt, statusEmail),
-        enviarWebhookDiscord(chaveUso, emailFinal || 'Não informado', nomeFinal, colabFmt, whatsapp, dataAquisicaoFmt, dataValidadeFmt, isRenovacao, isDegustacao)
+        enviarEmailJS(emailFinal, nomeOficial, chaveUso, dataValidadeFmt, statusEmail),
+        enviarWebhookDiscord(chaveUso, emailFinal || 'Não informado', nomeOficial, colabFmt, whatsapp, dataAquisicaoFmt, dataValidadeFmt, isRenovacao, isDegustacao)
       ]);
 
       setResultado({
         sucesso: true,
-        mensagem: 'Licença processada e vinculada com sucesso!',
+        mensagem: 'Matrícula validada e licença gerada com sucesso!',
         chave: chaveUso,
         validade: dataValidadeFmt,
       });
@@ -365,9 +369,19 @@ export default function PanelAdm() {
     try {
       const { matricula, dias } = formAtualizacao;
       const diasAdd = parseInt(dias) || 30;
+      const matriculaLimpa = matricula ? matricula.trim() : '';
 
-      const { data: colabs } = await supabase.from('colaboradores').select('id, matricula, nome, email').eq('matricula', matricula.trim());
-      if (!colabs || colabs.length === 0) throw new Error('Colaborador não encontrado com esta matrícula.');
+      // Opcional: validar também na atualização se pertence aos funcionários válidos
+      const funcionarioValido = FUNCIONARIOS_VALIDOS.find(
+        (f) => String(f.matricula).trim() === matriculaLimpa
+      );
+
+      if (!funcionarioValido) {
+        throw new Error('Matrícula não encontrada na lista de funcionários válidos!');
+      }
+
+      const { data: colabs } = await supabase.from('colaboradores').select('id, matricula, nome, email').eq('matricula', matriculaLimpa);
+      if (!colabs || colabs.length === 0) throw new Error('Colaborador não possui registro de licença prévia no banco.');
 
       const colab = colabs[0];
       const { data: licencas } = await supabase.from('licencas').select('*').eq('colaborador_id', colab.id);
@@ -545,10 +559,9 @@ export default function PanelAdm() {
                 <label className="block text-xs uppercase text-slate-400 font-semibold mb-1">Nome Completo</label>
                 <input
                   type="text"
-                  required
                   value={formCadastro.nome}
                   onChange={(e) => setFormCadastro({ ...formCadastro, nome: e.target.value })}
-                  placeholder="Ex: João da Silva"
+                  placeholder="Ex: João da Silva (Opcional se já estiver na lista)"
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -568,7 +581,6 @@ export default function PanelAdm() {
                 <label className="block text-xs uppercase text-slate-400 font-semibold mb-1">E-mail</label>
                 <input
                   type="email"
-                  required
                   value={formCadastro.email}
                   onChange={(e) => setFormCadastro({ ...formCadastro, email: e.target.value })}
                   placeholder="cliente@email.com"
