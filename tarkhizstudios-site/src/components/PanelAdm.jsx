@@ -730,6 +730,75 @@ export default function PanelAdm() {
           )}
         </div>
       </div>
+      {/* Painel Abaixo: Histórico de Notas Separado por Usuário/Chave */}
+      <div className="w-full max-w-4xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden p-6">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-white">Histórico de Notas</h2>
+            <p className="text-slate-400 text-sm">Registros extraídos da tabela de execuções separados por usuário</p>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <input
+              type="text"
+              value={filtroHistorico}
+              onChange={(e) => setFiltroHistorico(e.target.value)}
+              placeholder="Filtrar por usuário, nota ou instalação..."
+              className="w-full sm:w-72 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={buscarHistoricoNotas}
+              className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-4 py-2 rounded-lg transition whitespace-nowrap"
+            >
+              🔄 Atualizar
+            </button>
+          </div>
+        </div>
+
+        {loadingHistorico ? (
+          <p className="text-center text-slate-400 py-8">Carregando histórico de notas...</p>
+        ) : Object.keys(agrupadoPorUsuario).length > 0 ? (
+          <div className="space-y-6">
+            {Object.entries(agrupadoPorUsuario).map(([usuario, notas]) => (
+              <div key={usuario} className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-4">
+                <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-700">
+                  <span className="font-mono font-bold text-blue-400 text-base">👤 {usuario}</span>
+                  <span className="text-xs bg-blue-950 text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded-full font-semibold">
+                    {notas.length} {notas.length === 1 ? 'registro' : 'registros'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {notas.map((item) => (
+                    <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start mb-1 gap-2">
+                          <span className="font-semibold text-slate-200">Tipo: {item.tipo || 'N/A'}</span>
+                          <span className="text-xs text-slate-400">
+                            {item.created_at ? new Date(item.created_at).toLocaleString('pt-BR') : 'Data não informada'}
+                          </span>
+                        </div>
+                        {item.instalacao && (
+                          <div className="text-xs text-slate-400 mb-2">Instalação: <span className="text-slate-300 font-mono">{item.instalacao}</span></div>
+                        )}
+                        <div className="bg-slate-900/80 p-2.5 rounded border border-slate-700/50 text-slate-100 font-mono text-xs whitespace-pre-wrap mb-2">
+                          {item.nota || 'Sem conteúdo de nota.'}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center text-xs text-slate-400 pt-2 border-t border-slate-700/40">
+                        <span>Ref: {item.data_referencia || 'N/A'}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${item.reenviado ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                          {item.reenviado ? 'Reenviado' : 'Não reenviado'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-slate-400 py-8">Nenhum histórico de notas encontrado.</p>
+        )}
+    </div>
     </div>
   );
 }
