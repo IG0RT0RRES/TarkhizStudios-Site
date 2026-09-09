@@ -20,10 +20,15 @@ export default function PanelAdm() {
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null);
 
-  // Estados para a listagem
+  // Estados para a listagem de licenças
   const [licencasCadastradas, setLicencasCadastradas] = useState([]);
   const [loadingLista, setLoadingLista] = useState(false);
   const [filtroBusca, setFiltroBusca] = useState('');
+
+  // Estados para o Histórico de Notas (tabela historico_execucoes)
+  const [historicoNotas, setHistoricoNotas] = useState([]);
+  const [loadingHistorico, setLoadingHistorico] = useState(false);
+  const [filtroHistorico, setFiltroHistorico] = useState('');
 
   const [formCadastro, setFormCadastro] = useState({
     matricula: '',
@@ -157,6 +162,29 @@ export default function PanelAdm() {
     }
   };
 
+  const buscarHistoricoNotas = async () => {
+    setLoadingHistorico(true);
+    try {
+      const { data, error } = await supabase
+        .from('historico_execucoes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setHistoricoNotas(data || []);
+    } catch (err) {
+      console.error('Erro ao buscar histórico de notas:', err.message);
+    } finally {
+      setLoadingHistorico(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      buscarHistoricoNotas();
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     if (abaAtiva === 'lista' && isAdmin) {
       buscarLicencasDoBanco();
@@ -256,7 +284,6 @@ export default function PanelAdm() {
         throw new Error('Informe a matrícula do colaborador.');
       }
 
-      // 1. Validar se a matrícula existe estritamente em FUNCIONARIOS_VALIDOS
       const funcionarioValido = FUNCIONARIOS_VALIDOS.find(
         (f) => String(f.matricula).trim() === matriculaLimpa
       );
@@ -265,10 +292,8 @@ export default function PanelAdm() {
         throw new Error('Matrícula não encontrada na lista de funcionários válidos!');
       }
 
-      // Utiliza o nome vindo do arquivo de funcionários válidos (ou do form se preferir)
       const nomeOficial = funcionarioValido.nome || nome || 'CLIENTE';
 
-      // 2. Garantir que o colaborador exista na tabela 'colaboradores' do Supabase para manter a relação com a licença
       let colaboradorId = null;
       const { data: colabBanco } = await supabase
         .from('colaboradores')
@@ -293,7 +318,6 @@ export default function PanelAdm() {
         colaboradorId = novoColab.id;
       }
 
-      // 3. Verificar se já existe licença para este colaborador
       const { data: licencas } = await supabase.from('licencas').select('*').eq('colaborador_id', colaboradorId);
       const licencaExistente = licencas && licencas.length > 0 ? licencas[0] : null;
 
@@ -371,7 +395,6 @@ export default function PanelAdm() {
       const diasAdd = parseInt(dias) || 30;
       const matriculaLimpa = matricula ? matricula.trim() : '';
 
-      // Opcional: validar também na atualização se pertence aos funcionários válidos
       const funcionarioValido = FUNCIONARIOS_VALIDOS.find(
         (f) => String(f.matricula).trim() === matriculaLimpa
       );
@@ -484,7 +507,7 @@ export default function PanelAdm() {
     );
   }
 
-  // Filtragem utilizando a normalização de texto para ignorar acentos e letras maiúsculas/minúsculas
+  // Filtragem das licenças
   const licencasFiltradas = licencasCadastradas.filter(item => {
     const nome = normalizarTexto(item.colaboradores?.nome);
     const matricula = normalizarTexto(item.colaboradores?.matricula);
@@ -493,6 +516,25 @@ export default function PanelAdm() {
 
     return nome.includes(termo) || matricula.includes(termo) || chave.includes(termo);
   });
+
+  // Filtragem e Agrupamento do Histórico de Notas por Usuário/Chave
+  const historicoFiltrado = historicoNotas.filter(item => {
+    const usuario = normalizarTexto(item.usuario);
+    const nota = normalizarTexto(item.nota);
+    const instalacao = normalizarTexto(item.instalacao);
+    const termo = normalizarTexto(filtroHistorico);
+
+    return usuario.includes(termo) || nota.includes(termo) || instalacao.includes(termo);
+  });
+
+  const agrupadoPorUsuario = historicoFiltrado.reduce((acc, curr) => {
+    const usuarioKey = curr.usuario || 'Desconhecido';
+    if (!acc[usuarioKey]) {
+      acc[usuarioKey] = [];
+    }
+    acc[usuarioKey].push(curr);
+    return acc;
+  }, {});
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-sans">
@@ -506,7 +548,8 @@ export default function PanelAdm() {
         </button>
       </div>
 
-      <div className="w-full max-w-4xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
+      {/* Painel Principal */}
+      <div className="w-full max-w-4xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden mb-8">
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-center">
           <h1 className="text-2xl font-bold tracking-wide">Gestor de Licenças</h1>
           <p className="text-blue-100 text-sm mt-1">Painel Administrativo Completo</p>
@@ -730,6 +773,7 @@ export default function PanelAdm() {
           )}
         </div>
       </div>
+
       {/* Painel Abaixo: Histórico de Notas Separado por Usuário/Chave */}
       <div className="w-full max-w-4xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden p-6">
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
@@ -798,7 +842,7 @@ export default function PanelAdm() {
         ) : (
           <p className="text-center text-slate-400 py-8">Nenhum histórico de notas encontrado.</p>
         )}
-    </div>
+      </div>
     </div>
   );
 }
