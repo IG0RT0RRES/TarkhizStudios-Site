@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   const nickname = body.nickname || body.NickName || "";
   const email = body.email || body.Email || "";
   const password = body.password || body.Password || "";
-  const icon = body.icon || body.avatar_id || body.IconBase64 || "avatar-0";
+  const icon = body.icon || body.avatar_id || "avatar-0";
   
   // Tratamento dos novos campos solicitados:
   const birthday = body.birthday || body.Birthday || "";
@@ -158,6 +158,6 @@ function formatProfileObject(data, iconFallback) {
     Score: Number(data.score || 0),
     TokenFacebook: data.tokenfacebook || "",
     Achievement: data.achievement || "",
-    ImgBase64: data.avatar_id || iconFallback || ""
+    avatarId: data.avatar_id || iconFallback || ""
   };
 }
