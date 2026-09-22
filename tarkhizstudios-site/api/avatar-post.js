@@ -27,15 +27,22 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2. Captura de dados (suporta JSON ou x-www-form-urlencoded do Unity)
+  // 2. Captura de dados e log para inspecionar no painel da Vercel
   const body = req.body || {};
+  
+  console.log("=== CORPO DA REQUISIÇÃO RECEBIDO ===");
+  console.log(JSON.stringify(body, null, 2));
+
   const id = body.id || body.ProfileId;
-  const username = body.UserName || body.username || "";[cite: 4]
-  const icon = body.icon || body.avatar_id || body.IconBase64 || "";[cite: 4]
+  const username = body.UserName || body.username || "";
+  const icon = body.icon || body.avatar_id || body.IconBase64 || "";
 
   // 3. Validação de Conteúdo Específico
   if (!id || !icon) {
-    return res.status(400).json({ error: "Dados incompletos" });[cite: 4]
+    return res.status(400).json({ 
+      error: "Dados incompletos", 
+      receivedBody: body 
+    });
   }
 
   try {
@@ -54,15 +61,15 @@ export default async function handler(req, res) {
       throw error;
     }
 
-    // 5. Retorno de sucesso mantendo a paridade com o PHP
+    // 5. Retorno de sucesso
     return res.status(200).json({
-      status: "success",[cite: 4]
-      message: "Icon updated"[cite: 4]
+      status: "success",
+      message: "Icon updated"
     });
 
   } catch (err) {
     return res.status(500).json({
-      error: "Falha ao processar imagem no servidor",[cite: 4]
+      error: "Falha ao processar imagem no servidor",
       details: err.message
     });
   }
