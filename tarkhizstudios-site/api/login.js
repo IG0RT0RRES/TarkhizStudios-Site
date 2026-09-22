@@ -56,21 +56,31 @@ export default async function handler(req, res) {
       return res.status(401).json({ status: 401, message: 'Senha incorreta' });
     }
 
-    // 5. Senha correta: Busca em paralelo os dados de todas as outras tabelas relacionadas ao id do usuário
+    // 5. Busca em paralelo os dados de todas as outras tabelas relacionadas ao id do usuário
     const [propertiesRes, unlocksRes, historyRes] = await Promise.all([
-      supabase.from('user_properties').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('user_properties').select('*').eq('user_id', userId),
       supabase.from('user_unlocks').select('*').eq('user_id', userId),
       supabase.from('user_history').select('*').eq('user_id', userId)
     ]);
 
-    // 6. Monta o objeto unificado incluindo o id, a password e as credenciais/relações
+    // Tratamento robusto para a propriedade (pega o primeiro objeto se for array ou o próprio objeto)
+    let propertiesData = null;
+    if (propertiesRes.data) {
+      if (Array.isArray(propertiesRes.data) && propertiesRes.data.length > 0) {
+        propertiesData = propertiesRes.data[0];
+      } else if (!Array.isArray(propertiesRes.data)) {
+        propertiesData = propertiesRes.data;
+      }
+    }
+
+    // 6. Monta o objeto unificado incluindo os dados de user_properties preenchidos
     const profileResponse = {
       ...profileData,
-      id: userId,                // Garante que o ID vai explícito no JSON
-      password: credsData.password, // Inclui a senha no JSON de resposta
+      id: userId,
+      password: credsData.password,
       authenticator: credsData.authenticator,
       tokenfacebook: credsData.tokenfacebook,
-      properties: propertiesRes.data || null,
+      properties: propertiesData, // Agora garante o objeto preenchido da user_properties
       unlocks: unlocksRes.data || [],
       history: historyRes.data || []
     };
@@ -78,7 +88,7 @@ export default async function handler(req, res) {
     // Retorna todos os dados consolidados para a Unity
     return res.status(200).json(profileResponse);
 
-  } catch (err) {
+     } catch (err) {
     return res.status(500).json({ status: 500, message: 'Erro interno no servidor', error: err.message });
   }
 }
