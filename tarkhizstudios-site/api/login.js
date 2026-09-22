@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializa o cliente do Supabase com as variáveis de ambiente corretas da Vercel (sem VITE_)
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Inicializa o cliente do Supabase com as variáveis de ambiente corretas da Vercel
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
@@ -63,9 +63,11 @@ export default async function handler(req, res) {
       supabase.from('user_history').select('*').eq('user_id', userId)
     ]);
 
-    // 6. Monta o objeto unificado contendo o perfil, credenciais e todas as relações do banco
+    // 6. Monta o objeto unificado incluindo o id, a password e as credenciais/relações
     const profileResponse = {
       ...profileData,
+      id: userId,                // Garante que o ID vai explícito no JSON
+      password: credsData.password, // Inclui a senha no JSON de resposta
       authenticator: credsData.authenticator,
       tokenfacebook: credsData.tokenfacebook,
       properties: propertiesRes.data || null,
