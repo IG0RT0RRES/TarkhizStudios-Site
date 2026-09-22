@@ -38,11 +38,13 @@ export default async function handler(req, res) {
       return res.status(404).json({ status: 404, message: 'Usuário não encontrado' });
     }
 
-    // 3. Busca as credenciais correspondentes na tabela 'user_credentials' usando o ID do perfil
+    const userId = profileData.id;
+
+    // 3. Busca as credenciais na tabela 'user_credentials' para validar a senha
     const { data: credsData, error: credsError } = await supabase
       .from('user_credentials')
-      .select('password, authenticator, tokenfacebook')
-      .eq('id', profileData.id)
+      .select('*')
+      .eq('id', userId)
       .single();
 
     if (credsError || !credsData) {
@@ -54,14 +56,24 @@ export default async function handler(req, res) {
       return res.status(401).json({ status: 401, message: 'Senha incorreta' });
     }
 
-    // 5. Adiciona os dados de credenciais necessários na resposta (opcional, se o Unity precisar)
+    // 5. Senha correta: Busca em paralelo os dados de todas as outras tabelas relacionadas ao id do usuário
+    const [propertiesRes, unlocksRes, historyRes] = await Promise.all([
+      supabase.from('user_properties').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('user_unlocks').select('*').eq('user_id', userId),
+      supabase.from('user_history').select('*').eq('user_id', userId)
+    ]);
+
+    // 6. Monta o objeto unificado contendo o perfil, credenciais e todas as relações do banco
     const profileResponse = {
       ...profileData,
-      Authenticator: credsData.authenticator,
-      TokenFacebook: credsData.tokenfacebook
+      authenticator: credsData.authenticator,
+      tokenfacebook: credsData.tokenfacebook,
+      properties: propertiesRes.data || null,
+      unlocks: unlocksRes.data || [],
+      history: historyRes.data || []
     };
 
-    // Retorna o perfil validado para a Unity
+    // Retorna todos os dados consolidados para a Unity
     return res.status(200).json(profileResponse);
 
   } catch (err) {
