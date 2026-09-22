@@ -1,26 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializa o cliente do Supabase com as variáveis de ambiente corretas da Vercel
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
-  // Libera CORS para aceitar requisições da Unity
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== 'POST') {
+  // Agora aceita tanto POST quanto GET
+  if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ status: 405, message: 'Método não permitido' });
   }
 
   try {
-    const { username, password } = req.body;
+    // Pega os dados do corpo (POST) OU da URL (GET / Query Parameters)
+    const username = req.body?.username || req.query?.username;
+    const password = req.body?.password || req.query?.password;
 
     if (!username || !password) {
       return res.status(400).json({ status: 400, message: 'Usuário e senha são obrigatórios' });
@@ -33,14 +34,13 @@ export default async function handler(req, res) {
       .eq('username', username)
       .single();
 
-    // 2. Verifica se o perfil foi encontrado
     if (profileError || !profileData) {
       return res.status(404).json({ status: 404, message: 'Usuário não encontrado' });
     }
 
     const userId = profileData.id;
 
-    // 3. Busca as credenciais na tabela 'user_credentials' para validar a senha
+    // 2. Busca as credenciais na tabela 'user_credentials' para validar a senha
     const { data: credsData, error: credsError } = await supabase
       .from('user_credentials')
       .select('*')
@@ -51,19 +51,17 @@ export default async function handler(req, res) {
       return res.status(404).json({ status: 404, message: 'Credenciais não encontradas para este usuário' });
     }
 
-    // 4. Valida se a senha bate com a cadastrada
     if (credsData.password !== password) {
       return res.status(401).json({ status: 401, message: 'Senha incorreta' });
     }
 
-    // 5. Busca em paralelo os dados de todas as outras tabelas relacionadas ao id do usuário
+    // 3. Busca em paralelo os dados das outras tabelas
     const [propertiesRes, unlocksRes, historyRes] = await Promise.all([
       supabase.from('user_properties').select('*').eq('user_id', userId),
       supabase.from('user_unlocks').select('*').eq('user_id', userId),
       supabase.from('user_history').select('*').eq('user_id', userId)
     ]);
 
-    // Tratamento robusto para a propriedade (pega o primeiro objeto se for array ou o próprio objeto)
     let propertiesData = null;
     if (propertiesRes.data) {
       if (Array.isArray(propertiesRes.data) && propertiesRes.data.length > 0) {
@@ -73,22 +71,20 @@ export default async function handler(req, res) {
       }
     }
 
-    // 6. Monta o objeto unificado incluindo os dados de user_properties preenchidos
     const profileResponse = {
       ...profileData,
       id: userId,
       password: credsData.password,
       authenticator: credsData.authenticator,
       tokenfacebook: credsData.tokenfacebook,
-      properties: propertiesData, // Agora garante o objeto preenchido da user_properties
+      properties: propertiesData,
       unlocks: unlocksRes.data || [],
       history: historyRes.data || []
     };
 
-    // Retorna todos os dados consolidados para a Unity
     return res.status(200).json(profileResponse);
 
-     } catch (err) {
+  } catch (err) {
     return res.status(500).json({ status: 500, message: 'Erro interno no servidor', error: err.message });
   }
 }
