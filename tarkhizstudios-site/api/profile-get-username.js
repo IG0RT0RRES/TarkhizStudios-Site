@@ -60,15 +60,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Extrai os unlocks de forma flexível para garantir que apanha a chave correta
-    const unlocksList = Array.isArray(unlocksRes.data) 
-      ? unlocksRes.data.map(u => u.unlock_key || u.key || u.name || JSON.stringify(u)) 
-      : [];
-
-    const historyList = Array.isArray(historyRes.data) 
-      ? historyRes.data.map(h => h.event_name || h.description || JSON.stringify(h)) 
-      : [];
-
     // 3. Monta o objeto exatamente igual ao endpoint de login
     const profileResponse = {
       id: userId,
@@ -90,8 +81,8 @@ export default async function handler(req, res) {
         energy: Number(propertiesData.energy || 0)
       } : null,
       avatar_id: profileData.avatar_id || '',
-      unlocks: unlocksList,
-      history: historyList,
+      unlocks: unlocksRes.data || [], // Retorna a lista completa de objetos igual ao login
+      history: historyRes.data || [], // Retorna a lista completa de histórico igual ao login
       created_at: profileData.created_at || '',
       updated_at: profileData.updated_at || '',
       password: credsRes.data?.password || ''
