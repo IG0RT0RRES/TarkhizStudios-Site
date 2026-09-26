@@ -23,60 +23,96 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2. Captura do ID via Query String (GET) ou Body (POST)
-  const id = req.query.id || req.body?.id || req.body?.ProfileId;
+  // Exemplo para Login (capturando username e password)
+  const { username, password } = req.body || {};
 
-  if (!id) {
-    return res.status(400).json({ error: 'O parâmetro ID é obrigatório.' });
+  if (!username) {
+    return res.status(400).json({ error: 'O parâmetro username é obrigatório.' });
   }
 
   try {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    // 3. Consulta ao Supabase
-    const { data: profile, error } = await supabase
+    // Consulta com os JOINs das tabelas secundárias
+    let query = supabase
       .from('profiles')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
+      .select(`
+        *,
+        user_properties (*),
+        user_unlocks (*),
+        user_history (*)
+      `)
+      .eq('username', username);
+
+    // Se houver password na requisição (caso seja login), valida também
+    if (password !== undefined) {
+      query = query.eq('password', password);
+    }
+
+    const { data: profile, error } = await query.maybeSingle();
 
     if (error) {
       throw error;
     }
 
-    // Se o perfil não for encontrado, mantém a resposta idêntica ao PHP
     if (!profile) {
-      return res.status(404).send('0 results');
+      return res.status(404).json({ message: 'Utilizador não encontrado ou palavra-passe incorreta.' });
     }
 
-    // 4. Retorna o objeto formatado para o Unity
+    // Retorna formatado exatamente igual
     return res.status(200).json(formatProfileObject(profile));
 
   } catch (err) {
     return res.status(500).json({
-      error: 'Erro ao buscar perfil no Supabase',
+      error: 'Erro ao processar requisição no Supabase',
       details: err.message
     });
   }
 }
 
-// Função de formatação para manter paridade com o Unity[cite: 2]
+// Função de formatação idêntica para manter o padrão no Unity
 function formatProfileObject(data) {
+  let props = null;
+  if (data.user_properties) {
+    if (Array.isArray(data.user_properties) && data.user_properties.length > 0) {
+      props = data.user_properties[0];
+    } else if (!Array.isArray(data.user_properties)) {
+      props = data.user_properties;
+    }
+  }
+
+  const unlocksList = Array.isArray(data.user_unlocks) 
+    ? data.user_unlocks.map(u => u.unlock_key || u.key || JSON.stringify(u)) 
+    : [];
+
+  const historyList = Array.isArray(data.user_history) 
+    ? data.user_history.map(h => h.event_name || h.description || JSON.stringify(h)) 
+    : [];
+
   return {
-    ProfileId: data.id || 0,
-    Status: data.status ?? 1,
-    UserName: data.username || '',
-    NickName: data.nickname || '',
-    AccountDate: data.accountdate || data.created_at || '',
-    Gender: data.gender || '',
-    Email: data.email || '',
-    Birthday: data.birthday || '',
-    Location: data.location || '',
-    Password: data.password || '',
-    Authenticator: data.authenticator || '',
-    Score: Number(data.score || 0),
-    TokenFacebook: data.tokenfacebook || '',
-    Achievement: data.achievement || '',
-    ImgBase64: data.avatar_id || ''
+    id: data.id || '',
+    username: data.username || '',
+    nickname: data.nickname || '',
+    gender: Number(data.gender || 0),
+    birthday: data.birthday || '',
+    location: Number(data.location_id ?? data.location ?? 0),
+    authenticator: Number(data.authenticator || 0),
+    score: Number(data.score || 0),
+    status: Number(data.status ?? 1),
+    email: data.email || '',
+    tokenfacebook: data.tokenfacebook || '000000000',
+    properties: props ? {
+      user_id: props.user_id || data.id,
+      handful: Number(props.handful || 0),
+      bombs: Number(props.bombs || 0),
+      university: Number(props.university || 0),
+      energy: Number(props.energy || 0)
+    } : null,
+    avatar_id: data.avatar_id || '',
+    unlocks: unlocksList,
+    history: historyList,
+    created_at: data.created_at || '',
+    updated_at: data.updated_at || '',
+    password: data.password || ''
   };
 }
