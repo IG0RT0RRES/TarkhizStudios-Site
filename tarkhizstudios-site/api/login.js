@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
@@ -13,44 +13,84 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Agora aceita tanto POST quanto GET
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ status: 405, message: 'Método não permitido' });
   }
 
   try {
     // Pega os dados do corpo (POST) OU da URL (GET / Query Parameters)
-    const username = req.body?.username || req.query?.username;
+    const identifier = req.body?.username || req.body?.email || req.query?.username || req.query?.email;
     const password = req.body?.password || req.query?.password;
 
-    if (!username || !password) {
-      return res.status(400).json({ status: 400, message: 'Usuário e senha são obrigatórios' });
+    if (!identifier || !password) {
+      return res.status(400).json({ status: 400, message: 'Usuário/Email e senha são obrigatórios' });
     }
 
-    // 1. Busca o perfil pelo username na tabela 'profiles'
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('username', username)
-      .single();
+    let profileData = null;
+    let userId = null;
+    let credsData = null;
 
-    if (profileError || !profileData) {
-      return res.status(404).json({ status: 404, message: 'Usuário não encontrado' });
+    // 1. Verifica se o identificador é um email (contém '@') ou um username
+    const isEmail = identifier.includes('@');
+
+    if (isEmail) {
+      // Busca primeiro nas credenciais pelo email
+      const { data: credsResult, error: credsSearchError } = await supabase
+        .from('user_credentials')
+        .select('*')
+        .eq('email', identifier)
+        .maybeSingle();
+
+      if (credsSearchError || !credsResult) {
+        return res.status(404).json({ status: 404, message: 'Usuário não encontrado com este email' });
+      }
+
+      credsData = credsResult;
+      userId = credsData.id;
+
+      // Busca o perfil correspondente na tabela 'profiles'
+      const { data: profileResult, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (profileError || !profileResult) {
+        return res.status(404).json({ status: 404, message: 'Perfil não encontrado' });
+      }
+
+      profileData = profileResult;
+
+    } else {
+      // Busca pelo username na tabela 'profiles'
+      const { data: profileResult, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', identifier)
+        .maybeSingle();
+
+      if (profileError || !profileResult) {
+        return res.status(404).json({ status: 404, message: 'Usuário não encontrado' });
+      }
+
+      profileData = profileResult;
+      userId = profileData.id;
+
+      // Busca as credenciais correspondentes
+      const { data: credsResult, error: credsError } = await supabase
+        .from('user_credentials')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (credsError || !credsResult) {
+        return res.status(404).json({ status: 404, message: 'Credenciais não encontradas para este usuário' });
+      }
+
+      credsData = credsResult;
     }
 
-    const userId = profileData.id;
-
-    // 2. Busca as credenciais na tabela 'user_credentials' para validar a senha
-    const { data: credsData, error: credsError } = await supabase
-      .from('user_credentials')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (credsError || !credsData) {
-      return res.status(404).json({ status: 404, message: 'Credenciais não encontradas para este usuário' });
-    }
-
+    // 2. Valida a senha
     if (credsData.password !== password) {
       return res.status(401).json({ status: 401, message: 'Senha incorreta' });
     }
@@ -75,19 +115,21 @@ export default async function handler(req, res) {
     const formattedHistory = Array.isArray(historyRes.data) 
       ? historyRes.data.map(h => ({
           ...h,
-          is_conquest: Boolean(h.is_conquest) // Assegura conversão correta para boolean
+          is_conquest: Boolean(h.is_conquest)
         })) 
       : [];
 
+    // 4. Monta o objeto de resposta completo incluindo o email vindo de creds
     const profileResponse = {
       ...profileData,
       id: userId,
+      email: credsData.email || '', // Garante que o email retornado vem das credenciais
       password: credsData.password,
       authenticator: credsData.authenticator,
       tokenfacebook: credsData.tokenfacebook,
       properties: propertiesData,
       unlocks: unlocksRes.data || [],
-      history: formattedHistory // <-- Utiliza a lista formatada com o is_conquest seguro
+      history: formattedHistory
     };
 
     return res.status(200).json(profileResponse);
