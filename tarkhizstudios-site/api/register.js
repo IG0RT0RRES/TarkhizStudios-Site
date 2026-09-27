@@ -39,11 +39,9 @@ export default async function handler(req, res) {
   if (birthday && birthday.includes('/')) {
     const parts = birthday.split('/');
     if (parts.length === 3) {
-      // Se vier DD/MM/YYYY
       if (parts[0].length === 2 && parts[2].length === 4) {
         birthday = `${parts[2]}-${parts[1]}-${parts[0]}`;
       } 
-      // Se vier YYYY/MM/DD
       else if (parts[0].length === 4) {
         birthday = `${parts[0]}-${parts[1]}-${parts[2]}`;
       }
@@ -97,7 +95,7 @@ export default async function handler(req, res) {
     const newUserId = randomUUID();
     const nowIso = new Date().toISOString();
 
-    // 2. Inserção na tabela 'profiles' (respeitando exatamente as colunas do seu esquema)
+    // 2. Inserção na tabela 'profiles' (incluindo os novos campos is_admin e nickname_updated_at)
     const profileInsertData = {
       id: newUserId,
       username: username,
@@ -107,11 +105,12 @@ export default async function handler(req, res) {
       gender: gender,
       location_id: location,
       status: status,
+      is_admin: false,                  // Novos utilizadores começam como não-admin por defeito
+      nickname_updated_at: null,        // Sem data de atualização prévia
       created_at: nowIso,
       updated_at: nowIso
     };
 
-    // Só inclui birthday se ele não estiver vazio para evitar conflitos de tipo DATE
     if (birthday && birthday.trim() !== "") {
       profileInsertData.birthday = birthday;
     }
@@ -126,7 +125,7 @@ export default async function handler(req, res) {
       throw new Error(`profiles insert error: ${insertError.message} (Code: ${insertError.code})`);
     }
 
-    // 3. Inserção em 'user_credentials' (com email, password, etc.)
+    // 3. Inserção em 'user_credentials'
     const { data: credsData, error: credsError } = await supabase
       .from('user_credentials')
       .insert([{ 
@@ -154,7 +153,7 @@ export default async function handler(req, res) {
       throw new Error(`user_properties insert error: ${propsError.message} (Code: ${propsError.code})`);
     }
 
-    // 5. Inserção em 'user_history' (Com a conquista inicial NewUser / is_conquest = true)
+    // 5. Inserção em 'user_history'
     const { data: historyData, error: historyError } = await supabase
       .from('user_history')
       .insert([{ 
@@ -205,6 +204,8 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     status: Number(profile.status ?? 1),
     email: creds?.email || "",
     tokenfacebook: creds?.tokenfacebook || "000000000",
+    is_admin: Boolean(profile.is_admin),                     // <--- Incluído na resposta
+    nickname_updated_at: profile.nickname_updated_at || "",   // <--- Incluído na resposta
     properties: properties ? {
       user_id: properties.user_id || profile.id,
       handful: Number(properties.handful || 0),
