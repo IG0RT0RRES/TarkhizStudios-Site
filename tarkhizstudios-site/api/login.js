@@ -71,6 +71,14 @@ export default async function handler(req, res) {
       }
     }
 
+    // Mapeia o histórico garantindo o tratamento correto do campo is_conquest
+    const formattedHistory = Array.isArray(historyRes.data) 
+      ? historyRes.data.map(h => ({
+          ...h,
+          is_conquest: Boolean(h.is_conquest) // Assegura conversão correta para boolean
+        })) 
+      : [];
+
     const profileResponse = {
       ...profileData,
       id: userId,
@@ -79,7 +87,7 @@ export default async function handler(req, res) {
       tokenfacebook: credsData.tokenfacebook,
       properties: propertiesData,
       unlocks: unlocksRes.data || [],
-      history: historyRes.data || []
+      history: formattedHistory // <-- Utiliza a lista formatada com o is_conquest seguro
     };
 
     return res.status(200).json(profileResponse);
