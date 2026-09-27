@@ -84,7 +84,7 @@ export default async function handler(req, res) {
     const newUserId = randomUUID();
     const nowIso = new Date().toISOString();
 
-    // 2. Inserção na tabela profiles
+    // 2. Inserção na tabela profiles (sem o campo email, mantendo a tabela limpa)
     const { data: insertedProfile, error: insertError } = await supabase
       .from('profiles')
       .insert([
@@ -92,7 +92,6 @@ export default async function handler(req, res) {
           id: newUserId,
           username: username,
           nickname: nickname,
-          email: email,
           score: score,
           avatar_id: icon,
           gender: gender,
@@ -110,10 +109,17 @@ export default async function handler(req, res) {
       throw new Error(`profiles insert error: ${insertError.message} (Code: ${insertError.code})`);
     }
 
-    // 3. Inserção em user_credentials
+    // 3. Inserção em user_credentials (armazenando o email com segurança junto com password e tokens)
     const { data: credsData, error: credsError } = await supabase
       .from('user_credentials')
-      .insert([{ id: newUserId, password, authenticator, tokenfacebook, updated_at: nowIso }])
+      .insert([{ 
+        id: newUserId, 
+        email: email, 
+        password: password, 
+        authenticator: authenticator, 
+        tokenfacebook: tokenfacebook, 
+        updated_at: nowIso 
+      }])
       .select()
       .single();
 
@@ -153,7 +159,6 @@ export default async function handler(req, res) {
     ));
 
   } catch (err) {
-    // Retorna o erro exato do banco de dados na resposta para visualização imediata
     return res.status(500).json({
       error: "Erro ao processar requisição no Supabase",
       details: err.message
@@ -172,7 +177,7 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     authenticator: Number(creds?.authenticator || 0),
     score: Number(profile.score || 0),
     status: Number(profile.status ?? 1),
-    email: profile.email || "",
+    email: creds?.email || "", // Puxa o email diretamente da tabela de credenciais
     tokenfacebook: creds?.tokenfacebook || "000000000",
     properties: properties ? {
       user_id: properties.user_id || profile.id,
