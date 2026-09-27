@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
   // 1. Configuração de CORS para chamadas da Unity / Front-end
@@ -27,25 +27,22 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2. Captura de todos os dados enviados pelo Unity (suporta JSON e x-www-form-urlencoded)
+  // 2. Captura de todos os dados enviados pelo Unity
   const body = req.body || {};
   const username = body.username || body.UserName || "";
-  const nickname = body.nickname || body.NickName || "";
+  const nickname = body.nickname || body.NickName || username;
   const email = body.email || body.Email || "";
   const password = body.password || body.Password || "";
   const icon = body.icon || body.avatar_id || "avatar-0";
   
-  // Tratamento dos novos campos solicitados:
   const birthday = body.birthday || body.Birthday || "";
-  const gender = parseInt(body.gender ?? body.Gender ?? 0, 10); // 0: Masculino, 1: Feminino, 2: Non-binary
-  const location = parseInt(body.location ?? body.Location ?? 0, 10); // 0 a 15 (Índices dos países/bandeiras)
-  const status = parseInt(body.status ?? body.Status ?? 1, 10); // 0: Ativo, 1: Aprovado, 2: Rejeitado
+  const gender = parseInt(body.gender ?? body.Gender ?? 0, 10);
+  const location = parseInt(body.location ?? body.Location ?? 0, 10);
+  const status = parseInt(body.status ?? body.Status ?? 1, 10);
   
-  const accountdate = body.accountdate || body.AccountDate || new Date().toISOString().split('T')[0];
-  const authenticator = body.authenticator || body.Authenticator || "";
-  const achievement = body.achievement || body.Achievement || "";
-  const tokenfacebook = body.tokenfacebook || body.TokenFacebook || "";
-  const score = parseInt(body.score || body.Score || 0, 10);
+  const authenticator = parseInt(body.authenticator || body.Authenticator || 0, 10);
+  const tokenfacebook = body.tokenfacebook || body.TokenFacebook || "000000000";
+  const score = parseInt(body.score || body.Score || 5000, 10); // Valor padrão inicial de bónus
 
   if (!username) {
     return res.status(400).json({ error: "O campo username é obrigatório." });
@@ -66,19 +63,28 @@ export default async function handler(req, res) {
     }
 
     if (existingProfile) {
-      return res.status(200).json(formatProfileObject(existingProfile, icon));
+      // Se já existe, busca as tabelas secundárias para retornar o perfil completo estruturado
+      const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
+        supabase.from('user_credentials').select('*').eq('id', existingProfile.id).maybeSingle(),
+        supabase.from('user_properties').select('*').eq('user_id', existingProfile.id),
+        supabase.from('user_unlocks').select('*').eq('user_id', existingProfile.id),
+        supabase.from('user_history').select('*').eq('user_id', existingProfile.id)
+      ]);
+
+      return res.status(200).json(formatProfileObject(existingProfile, credsRes.data, propertiesRes.data, unlocksRes.data, historyRes.data));
     }
 
     // 4. Validar dados obrigatórios para criação
-    if (!username || !password || !email) {
+    if (!password || !email) {
       return res.status(400).json({ 
         error: "Dados insuficientes para criação. Requer: username, password e email." 
       });
     }
 
     const newUserId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
 
-    // 5. Inserção com todos os campos na tabela profiles
+    // 5. Inserção na tabela principal 'profiles'
     const { data: insertedProfile, error: insertError } = await supabase
       .from('profiles')
       .insert([
@@ -86,14 +92,15 @@ export default async function handler(req, res) {
           id: newUserId,
           username: username,
           nickname: nickname,
+          email: email,
           score: score,
           avatar_id: icon,
           gender: gender,
           birthday: birthday,
-          location: location,
+          location_id: location, // Ajustado para location_id conforme a sua estrutura SQL
           status: status,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: nowIso,
+          updated_at: nowIso
         }
       ])
       .select()
@@ -103,35 +110,60 @@ export default async function handler(req, res) {
       throw insertError;
     }
 
-    // 6. Inicialização das propriedades adicionais do jogador
-    const { error: propsError } = await supabase
-      .from('user_properties')
-      .insert([
+    // 6. Inserção paralela nas tabelas secundárias (Credenciais, Propriedades e Histórico Inicial)
+    const [credsInsert, propsInsert, historyInsert] = await Promise.all([
+      // Tabela user_credentials
+      supabase.from('user_credentials').insert([
+        {
+          id: newUserId,
+          password: password,
+          authenticator: authenticator,
+          tokenfacebook: tokenfacebook,
+          updated_at: nowIso
+        }
+      ]).select().single(),
+
+      // Tabela user_properties (com valores iniciais)
+      supabase.from('user_properties').insert([
         {
           user_id: newUserId,
-          handful: 0,
+          handful: score,
           bombs: 0,
           university: 0,
-          energy: -1
+          energy: 0
         }
-      ]);
+      ]).select(),
 
-    if (propsError) {
-      console.warn("Aviso ao criar user_properties:", propsError.message);
+      // Tabela user_history (com a conquista inicial NewUser marcada como is_conquest = true)
+      supabase.from('user_history').insert([
+        {
+          user_id: newUserId,
+          event_name: 'NewUser',
+          description: 'Registrou-se com sucesso na plataforma.',
+          icon_name: 'NewPlayer',
+          is_conquest: true,
+          created_at: nowIso
+        }
+      ]).select()
+    ]);
+
+    let propertiesData = null;
+    if (propsInsert.data) {
+      propertiesData = Array.isArray(propsInsert.data) ? propsInsert.data[0] : propsInsert.data;
     }
 
-    // 7. Retorna a estrutura no formato PascalCase esperada pelo Unity
-    const newProfileData = {
-      ...insertedProfile,
-      email,
-      password,
-      accountdate,
-      authenticator,
-      tokenfacebook,
-      achievement
-    };
+    const formattedHistory = Array.isArray(historyInsert.data) 
+      ? historyInsert.data.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) }))
+      : [];
 
-    return res.status(200).json(formatProfileObject(newProfileData, icon));
+    // 7. Retorna a estrutura completa esperada pelo Unity
+    return res.status(200).json(formatProfileObject(
+      insertedProfile, 
+      credsInsert.data, 
+      propertiesData, 
+      [], 
+      formattedHistory
+    ));
 
   } catch (err) {
     return res.status(500).json({
@@ -141,23 +173,32 @@ export default async function handler(req, res) {
   }
 }
 
-// Função de formatação para manter paridade com o C# do Unity
-function formatProfileObject(data, iconFallback) {
+// Função de formatação padronizada para o Unity
+function formatProfileObject(profile, creds, properties, unlocks, history) {
   return {
-    ProfileId: data.id || 0,
-    Status: Number(data.status ?? 1),
-    UserName: data.username || "",
-    NickName: data.nickname || "",
-    AccountDate: data.accountdate || data.created_at || "",
-    Gender: Number(data.gender ?? 0),
-    Email: data.email || "",
-    Birthday: data.birthday || "",
-    Location: Number(data.location ?? 0),
-    Password: data.password || "",
-    Authenticator: data.authenticator || "",
-    Score: Number(data.score || 0),
-    TokenFacebook: data.tokenfacebook || "",
-    Achievement: data.achievement || "",
-    avatarId: data.avatar_id || iconFallback || ""
+    id: profile.id || "",
+    username: profile.username || "",
+    nickname: profile.nickname || "",
+    gender: Number(profile.gender || 0),
+    birthday: profile.birthday || "",
+    location: Number(profile.location_id ?? profile.location ?? 0),
+    authenticator: Number(creds?.authenticator || 0),
+    score: Number(profile.score || 0),
+    status: Number(profile.status ?? 1),
+    email: profile.email || "",
+    tokenfacebook: creds?.tokenfacebook || "000000000",
+    properties: properties ? {
+      user_id: properties.user_id || profile.id,
+      handful: Number(properties.handful || 0),
+      bombs: Number(properties.bombs || 0),
+      university: Number(properties.university || 0),
+      energy: Number(properties.energy || 0)
+    } : null,
+    avatar_id: profile.avatar_id || "avatar-0",
+    unlocks: unlocks || [],
+    history: history ? history.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) : [],
+    created_at: profile.created_at || "",
+    updated_at: profile.updated_at || "",
+    password: creds?.password || ""
   };
 }
