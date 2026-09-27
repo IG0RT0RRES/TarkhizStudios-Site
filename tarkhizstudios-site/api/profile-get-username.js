@@ -68,7 +68,7 @@ export default async function handler(req, res) {
         })) 
       : [];
 
-    // 3. Monta o objeto de resposta
+    // 3. Monta o objeto de resposta incluindo os novos campos
     const profileResponse = {
       id: userId,
       username: profileData.username || '',
@@ -79,8 +79,10 @@ export default async function handler(req, res) {
       authenticator: Number(credsRes.data?.authenticator || 0),
       score: Number(profileData.score || 0),
       status: Number(profileData.status ?? 1),
-      email: credsRes.data?.email || '', // <-- Puxa corretamente da tabela user_credentials
+      email: credsRes.data?.email || '',
       tokenfacebook: credsRes.data?.tokenfacebook || '000000000',
+      is_admin: Boolean(profileData.is_admin),                     // <--- Adicionado com mapeamento booleano seguro
+      nickname_updated_at: profileData.nickname_updated_at || '',   // <--- Adicionado com fallback de string vazia
       properties: propertiesData ? {
         user_id: propertiesData.user_id || userId,
         handful: Number(propertiesData.handful || 0),
@@ -90,7 +92,7 @@ export default async function handler(req, res) {
       } : null,
       avatar_id: profileData.avatar_id || '',
       unlocks: unlocksRes.data || [],
-      history: formattedHistory, // <-- Utiliza a lista com o is_conquest tratado
+      history: formattedHistory,
       created_at: profileData.created_at || '',
       updated_at: profileData.updated_at || '',
       password: credsRes.data?.password || ''
