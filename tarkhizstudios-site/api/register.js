@@ -55,7 +55,7 @@ export default async function handler(req, res) {
   
   const authenticator = parseInt(body.authenticator || body.Authenticator || 0, 10);
   const tokenfacebook = body.tokenfacebook || body.TokenFacebook || "000000000";
-  const score = parseInt(body.score || body.Score || 5000, 10);
+  const score = parseInt(body.score || body.Score || 100, 10);
 
   if (!username) {
     return res.status(400).json({ error: "O campo username é obrigatório." });
