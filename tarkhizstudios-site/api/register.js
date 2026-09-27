@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-// Prioriza a Service Role Key para ignorar RLS no backend, com fallback para a Anon Key
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
@@ -35,7 +34,7 @@ export default async function handler(req, res) {
   const password = body.password || body.Password || "";
   const icon = body.icon || body.avatar_id || "avatar-0";
   
-  const birthday = body.birthday || body.Birthday || "";
+  const birthday = body.birthday || body.Birthday || null; // Se vazio, envia null para colunas tipo DATE
   const gender = parseInt(body.gender ?? body.Gender ?? 0, 10);
   const location = parseInt(body.location ?? body.Location ?? 1, 10);
   const status = parseInt(body.status ?? body.Status ?? 1, 10);
@@ -53,7 +52,7 @@ export default async function handler(req, res) {
       auth: { persistSession: false }
     });
 
-    // 1. Verificar se o perfil já existe
+    // 1. Verificar se o perfil já existe pelo username
     const { data: existingProfile, error: searchError } = await supabase
       .from('profiles')
       .select('*')
@@ -84,24 +83,28 @@ export default async function handler(req, res) {
     const newUserId = randomUUID();
     const nowIso = new Date().toISOString();
 
-    // 2. Inserção na tabela profiles (sem o campo email, mantendo a tabela limpa)
+    // 2. Inserção na tabela 'profiles' (respeitando exatamente as colunas do seu esquema)
+    const profileInsertData = {
+      id: newUserId,
+      username: username,
+      nickname: nickname,
+      score: score,
+      avatar_id: icon,
+      gender: gender,
+      location_id: location,
+      status: status,
+      created_at: nowIso,
+      updated_at: nowIso
+    };
+
+    // Só inclui birthday se ele não estiver vazio para evitar conflitos de tipo DATE
+    if (birthday && birthday.trim() !== "") {
+      profileInsertData.birthday = birthday;
+    }
+
     const { data: insertedProfile, error: insertError } = await supabase
       .from('profiles')
-      .insert([
-        {
-          id: newUserId,
-          username: username,
-          nickname: nickname,
-          score: score,
-          avatar_id: icon,
-          gender: gender,
-          birthday: birthday,
-          location_id: location,
-          status: status,
-          created_at: nowIso,
-          updated_at: nowIso
-        }
-      ])
+      .insert([profileInsertData])
       .select()
       .single();
 
@@ -109,7 +112,7 @@ export default async function handler(req, res) {
       throw new Error(`profiles insert error: ${insertError.message} (Code: ${insertError.code})`);
     }
 
-    // 3. Inserção em user_credentials (armazenando o email com segurança junto com password e tokens)
+    // 3. Inserção em 'user_credentials' (com email, password, etc.)
     const { data: credsData, error: credsError } = await supabase
       .from('user_credentials')
       .insert([{ 
@@ -127,7 +130,7 @@ export default async function handler(req, res) {
       throw new Error(`user_credentials insert error: ${credsError.message} (Code: ${credsError.code})`);
     }
 
-    // 4. Inserção em user_properties
+    // 4. Inserção em 'user_properties'
     const { data: propsData, error: propsError } = await supabase
       .from('user_properties')
       .insert([{ user_id: newUserId, handful: score, bombs: 0, university: 0, energy: 0 }])
@@ -137,10 +140,17 @@ export default async function handler(req, res) {
       throw new Error(`user_properties insert error: ${propsError.message} (Code: ${propsError.code})`);
     }
 
-    // 5. Inserção em user_history
+    // 5. Inserção em 'user_history' (Com a conquista inicial NewUser / is_conquest = true)
     const { data: historyData, error: historyError } = await supabase
       .from('user_history')
-      .insert([{ user_id: newUserId, event_name: 'NewUser', description: 'Registrou-se com sucesso na plataforma.', icon_name: 'NewPlayer', is_conquest: true, created_at: nowIso }])
+      .insert([{ 
+        user_id: newUserId, 
+        event_name: 'NewUser', 
+        description: 'Registrou-se com sucesso na plataforma.', 
+        icon_name: 'NewPlayer', 
+        is_conquest: true, 
+        created_at: nowIso 
+      }])
       .select();
 
     if (historyError) {
@@ -148,7 +158,9 @@ export default async function handler(req, res) {
     }
 
     let propertiesData = Array.isArray(propsData) ? propsData[0] : propsData;
-    let formattedHistory = Array.isArray(historyData) ? historyData.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) : [];
+    let formattedHistory = Array.isArray(historyData) 
+      ? historyData.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) 
+      : [];
 
     return res.status(200).json(formatProfileObject(
       insertedProfile, 
@@ -177,7 +189,7 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     authenticator: Number(creds?.authenticator || 0),
     score: Number(profile.score || 0),
     status: Number(profile.status ?? 1),
-    email: creds?.email || "", // Puxa o email diretamente da tabela de credenciais
+    email: creds?.email || "",
     tokenfacebook: creds?.tokenfacebook || "000000000",
     properties: properties ? {
       user_id: properties.user_id || profile.id,
