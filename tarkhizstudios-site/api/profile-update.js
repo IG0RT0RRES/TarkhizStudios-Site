@@ -57,11 +57,19 @@ export default async function handler(req, res) {
 
     const nowIso = new Date().toISOString();
 
-    // 2. Prepara os dados para atualizar na tabela 'profiles' (apenas os campos que forem enviados)
+    // 2. Prepara os dados para atualizar na tabela 'profiles'
     const profileUpdates = { updated_at: nowIso };
     
     if (body.nickname !== undefined || body.NickName !== undefined) {
       profileUpdates.nickname = body.nickname || body.NickName;
+      // Se alterou o nickname, atualiza automaticamente a data de alteração se não foi enviada explicitamente
+      profileUpdates.nickname_updated_at = body.nickname_updated_at || body.NickNameUpdatedAt || nowIso;
+    }
+    if (body.nickname_updated_at !== undefined || body.NickNameUpdatedAt !== undefined) {
+      profileUpdates.nickname_updated_at = body.nickname_updated_at || body.NickNameUpdatedAt;
+    }
+    if (body.is_admin !== undefined || body.IsAdmin !== undefined) {
+      profileUpdates.is_admin = Boolean(body.is_admin ?? body.IsAdmin);
     }
     if (body.score !== undefined || body.Score !== undefined) {
       profileUpdates.score = parseInt(body.score ?? body.Score ?? 0, 10);
@@ -108,12 +116,11 @@ export default async function handler(req, res) {
       }
       updatedProfile = data;
     } else {
-      // Se não atualizou a tabela profiles, busca o registro atual
       const { data } = await supabase.from('profiles').select('*').eq('id', targetUserId).single();
       updatedProfile = data;
     }
 
-    // 3. Prepara os dados para atualizar na tabela 'user_credentials' (email, password, etc.)
+    // 3. Prepara os dados para atualizar na tabela 'user_credentials'
     const credsUpdates = { updated_at: nowIso };
     if (body.email !== undefined || body.Email !== undefined) {
       credsUpdates.email = body.email || body.Email;
@@ -146,7 +153,7 @@ export default async function handler(req, res) {
       updatedCreds = data;
     }
 
-    // 4. Busca os dados complementares (properties, unlocks, history) para retornar o perfil completo estruturado
+    // 4. Busca os dados complementares
     const [propertiesRes, unlocksRes, historyRes] = await Promise.all([
       supabase.from('user_properties').select('*').eq('user_id', targetUserId),
       supabase.from('user_unlocks').select('*').eq('user_id', targetUserId),
@@ -162,7 +169,7 @@ export default async function handler(req, res) {
       ? historyRes.data.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) 
       : [];
 
-    // 5. Retorna o perfil completo atualizado no formato padrão esperado pelo Unity
+    // 5. Retorna o perfil completo atualizado
     return res.status(200).json(formatProfileObject(
       updatedProfile,
       updatedCreds,
@@ -192,6 +199,8 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     status: Number(profile.status ?? 1),
     email: creds?.email || "",
     tokenfacebook: creds?.tokenfacebook || "000000000",
+    is_admin: Boolean(profile.is_admin),                     // <--- Mapeado com segurança para booleano
+    nickname_updated_at: profile.nickname_updated_at || "",   // <--- Mapeado para string de data/hora
     properties: properties ? {
       user_id: properties.user_id || profile.id,
       handful: Number(properties.handful || 0),
