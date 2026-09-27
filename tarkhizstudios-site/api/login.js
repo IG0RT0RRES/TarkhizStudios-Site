@@ -119,14 +119,16 @@ export default async function handler(req, res) {
         })) 
       : [];
 
-    // 4. Monta o objeto de resposta completo incluindo o email vindo de creds
+    // 4. Monta o objeto de resposta completo incluindo os novos campos de perfil
     const profileResponse = {
       ...profileData,
       id: userId,
-      email: credsData.email || '', // Garante que o email retornado vem das credenciais
+      email: credsData.email || '',
       password: credsData.password,
       authenticator: credsData.authenticator,
       tokenfacebook: credsData.tokenfacebook,
+      is_admin: Boolean(profileData.is_admin), // Garante o booleano correto para o Unity
+      nickname_updated_at: profileData.nickname_updated_at || null, // Garante o campo de data da edição do nickname
       properties: propertiesData,
       unlocks: unlocksRes.data || [],
       history: formattedHistory
