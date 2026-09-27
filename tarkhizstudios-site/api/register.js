@@ -1,10 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto'; // <-- Importação segura do UUID para Node.js
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
-  // 1. Configuração de CORS para chamadas da Unity / Front-end
+  // 1. Configuração de CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
@@ -27,7 +28,7 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2. Captura de todos os dados enviados pelo Unity
+  // 2. Captura de dados enviados pelo Unity
   const body = req.body || {};
   const username = body.username || body.UserName || "";
   const nickname = body.nickname || body.NickName || username;
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
   
   const authenticator = parseInt(body.authenticator || body.Authenticator || 0, 10);
   const tokenfacebook = body.tokenfacebook || body.TokenFacebook || "000000000";
-  const score = parseInt(body.score || body.Score || 5000, 10); // Valor padrão inicial de bónus
+  const score = parseInt(body.score || body.Score || 5000, 10);
 
   if (!username) {
     return res.status(400).json({ error: "O campo username é obrigatório." });
@@ -59,11 +60,10 @@ export default async function handler(req, res) {
       .maybeSingle();
 
     if (searchError) {
-      throw searchError;
+      throw new Error(`Erro ao buscar perfil: ${searchError.message}`);
     }
 
     if (existingProfile) {
-      // Se já existe, busca as tabelas secundárias para retornar o perfil completo estruturado
       const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
         supabase.from('user_credentials').select('*').eq('id', existingProfile.id).maybeSingle(),
         supabase.from('user_properties').select('*').eq('user_id', existingProfile.id),
@@ -74,17 +74,16 @@ export default async function handler(req, res) {
       return res.status(200).json(formatProfileObject(existingProfile, credsRes.data, propertiesRes.data, unlocksRes.data, historyRes.data));
     }
 
-    // 4. Validar dados obrigatórios para criação
     if (!password || !email) {
       return res.status(400).json({ 
         error: "Dados insuficientes para criação. Requer: username, password e email." 
       });
     }
 
-    const newUserId = crypto.randomUUID();
+    const newUserId = randomUUID(); // <-- Uso seguro do UUID importado
     const nowIso = new Date().toISOString();
 
-    // 5. Inserção na tabela principal 'profiles'
+    // 4. Inserção sequencial segura (Evita falhas de FK antes da tabela profiles consolidar o ID)
     const { data: insertedProfile, error: insertError } = await supabase
       .from('profiles')
       .insert([
@@ -97,7 +96,7 @@ export default async function handler(req, res) {
           avatar_id: icon,
           gender: gender,
           birthday: birthday,
-          location_id: location, // Ajustado para location_id conforme a sua estrutura SQL
+          location_id: location,
           status: status,
           created_at: nowIso,
           updated_at: nowIso
@@ -107,65 +106,45 @@ export default async function handler(req, res) {
       .single();
 
     if (insertError) {
-      throw insertError;
+      throw new Error(`Erro ao inserir em profiles: ${insertError.message}`);
     }
 
-    // 6. Inserção paralela nas tabelas secundárias (Credenciais, Propriedades e Histórico Inicial)
-    const [credsInsert, propsInsert, historyInsert] = await Promise.all([
-      // Tabela user_credentials
-      supabase.from('user_credentials').insert([
-        {
-          id: newUserId,
-          password: password,
-          authenticator: authenticator,
-          tokenfacebook: tokenfacebook,
-          updated_at: nowIso
-        }
-      ]).select().single(),
+    // 5. Inserções nas tabelas secundárias após o perfil estar garantido
+    const { data: credsData, error: credsError } = await supabase
+      .from('user_credentials')
+      .insert([{ id: newUserId, password, authenticator, tokenfacebook, updated_at: nowIso }])
+      .select()
+      .single();
 
-      // Tabela user_properties (com valores iniciais)
-      supabase.from('user_properties').insert([
-        {
-          user_id: newUserId,
-          handful: score,
-          bombs: 0,
-          university: 0,
-          energy: 0
-        }
-      ]).select(),
+    if (credsError) throw new Error(`Erro em user_credentials: ${credsError.message}`);
 
-      // Tabela user_history (com a conquista inicial NewUser marcada como is_conquest = true)
-      supabase.from('user_history').insert([
-        {
-          user_id: newUserId,
-          event_name: 'NewUser',
-          description: 'Registrou-se com sucesso na plataforma.',
-          icon_name: 'NewPlayer',
-          is_conquest: true,
-          created_at: nowIso
-        }
-      ]).select()
-    ]);
+    const { data: propsData, error: propsError } = await supabase
+      .from('user_properties')
+      .insert([{ user_id: newUserId, handful: score, bombs: 0, university: 0, energy: 0 }])
+      .select();
 
-    let propertiesData = null;
-    if (propsInsert.data) {
-      propertiesData = Array.isArray(propsInsert.data) ? propsInsert.data[0] : propsInsert.data;
-    }
+    if (propsError) throw new Error(`Erro em user_properties: ${propsError.message}`);
 
-    const formattedHistory = Array.isArray(historyInsert.data) 
-      ? historyInsert.data.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) }))
-      : [];
+    const { data: historyData, error: historyError } = await supabase
+      .from('user_history')
+      .insert([{ user_id: newUserId, event_name: 'NewUser', description: 'Registrou-se com sucesso na plataforma.', icon_name: 'NewPlayer', is_conquest: true, created_at: nowIso }])
+      .select();
 
-    // 7. Retorna a estrutura completa esperada pelo Unity
+    if (historyError) throw new Error(`Erro em user_history: ${historyError.message}`);
+
+    let propertiesData = Array.isArray(propsData) ? propsData[0] : propsData;
+    let formattedHistory = Array.isArray(historyData) ? historyData.history || historyData.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) : [];
+
     return res.status(200).json(formatProfileObject(
       insertedProfile, 
-      credsInsert.data, 
+      credsData, 
       propertiesData, 
       [], 
       formattedHistory
     ));
 
   } catch (err) {
+    // Retorna os detalhes exatos do erro para aparecer no log da Vercel ou Unity
     return res.status(500).json({
       error: "Erro ao processar requisição no Supabase",
       details: err.message
@@ -173,7 +152,6 @@ export default async function handler(req, res) {
   }
 }
 
-// Função de formatação padronizada para o Unity
 function formatProfileObject(profile, creds, properties, unlocks, history) {
   return {
     id: profile.id || "",
