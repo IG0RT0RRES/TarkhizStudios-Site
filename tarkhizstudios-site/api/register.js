@@ -34,7 +34,21 @@ export default async function handler(req, res) {
   const password = body.password || body.Password || "";
   const icon = body.icon || body.avatar_id || "avatar-0";
   
-  const birthday = body.birthday || body.Birthday || null; // Se vazio, envia null para colunas tipo DATE
+  let birthday = body.birthday || body.Birthday || null;
+  // Converte formato DD/MM/YYYY para YYYY-MM-DD (compatível com o tipo DATE do Supabase)
+  if (birthday && birthday.includes('/')) {
+    const parts = birthday.split('/');
+    if (parts.length === 3) {
+      // Se vier DD/MM/YYYY
+      if (parts[0].length === 2 && parts[2].length === 4) {
+        birthday = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      } 
+      // Se vier YYYY/MM/DD
+      else if (parts[0].length === 4) {
+        birthday = `${parts[0]}-${parts[1]}-${parts[2]}`;
+      }
+    }
+  }
   const gender = parseInt(body.gender ?? body.Gender ?? 0, 10);
   const location = parseInt(body.location ?? body.Location ?? 1, 10);
   const status = parseInt(body.status ?? body.Status ?? 1, 10);
