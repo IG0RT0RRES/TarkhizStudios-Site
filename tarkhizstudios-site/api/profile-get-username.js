@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
     const userId = profileData.id;
 
-    // 2. Busca em paralelo as credenciais e os dados das tabelas secundárias (igual ao login)
+    // 2. Busca em paralelo as credenciais e os dados das tabelas secundárias
     const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
       supabase.from('user_credentials').select('*').eq('id', userId).maybeSingle(),
       supabase.from('user_properties').select('*').eq('user_id', userId),
@@ -60,7 +60,15 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3. Monta o objeto exatamente igual ao endpoint de login
+    // Mapeia o histórico garantindo o tratamento correto do campo is_conquest
+    const formattedHistory = Array.isArray(historyRes.data) 
+      ? historyRes.data.map(h => ({
+          ...h,
+          is_conquest: Boolean(h.is_conquest) // Assegura que é booleano (true/false)
+        })) 
+      : [];
+
+    // 3. Monta o objeto de resposta
     const profileResponse = {
       id: userId,
       username: profileData.username || '',
@@ -81,8 +89,8 @@ export default async function handler(req, res) {
         energy: Number(propertiesData.energy || 0)
       } : null,
       avatar_id: profileData.avatar_id || '',
-      unlocks: unlocksRes.data || [], // Retorna a lista completa de objetos igual ao login
-      history: historyRes.data || [], // Retorna a lista completa de histórico igual ao login
+      unlocks: unlocksRes.data || [],
+      history: formattedHistory, // <-- Utiliza a lista com o is_conquest tratado
       created_at: profileData.created_at || '',
       updated_at: profileData.updated_at || '',
       password: credsRes.data?.password || ''
