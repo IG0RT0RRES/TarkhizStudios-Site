@@ -119,7 +119,7 @@ export default async function handler(req, res) {
         })) 
       : [];
 
-    // 4. Monta o objeto de resposta completo incluindo os novos campos de perfil
+    // 4. Monta o objeto de resposta completo incluindo os campos customizados e a blindagem de location
     const profileResponse = {
       ...profileData,
       id: userId,
@@ -129,6 +129,10 @@ export default async function handler(req, res) {
       tokenfacebook: credsData.tokenfacebook,
       is_admin: Boolean(profileData.is_admin), // Garante o booleano correto para o Unity
       nickname_updated_at: profileData.nickname_updated_at || null, // Garante o campo de data da edição do nickname
+      
+      // BLINDAGEM DE LOCATION: Garante que o Unity recebe sempre a propriedade "location" preenchida corretamente
+      location: Number(profileData.location ?? profileData.location_id ?? 1),
+
       properties: propertiesData,
       unlocks: unlocksRes.data || [],
       history: formattedHistory
