@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
   // 1. Configuração de CORS
@@ -17,13 +18,12 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseKey) {
     return res.status(500).json({
-      error: 'Configuração ausente na Vercel (SUPABASE_URL/SUPABASE_ANON_KEY).'
+      error: 'Configuração ausente na Vercel (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY).'
     });
   }
 
-  // Exemplo para Login (capturando username e password)
   const { username, password } = req.body || {};
 
   if (!username) {
@@ -31,36 +31,49 @@ export default async function handler(req, res) {
   }
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-    // Consulta com os JOINs das tabelas secundárias
-    let query = supabase
+    // 1. Busca o perfil pelo username na tabela 'profiles'
+    const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select(`
-        *,
-        user_properties (*),
-        user_unlocks (*),
-        user_history (*)
-      `)
-      .eq('username', username);
+      .select('*')
+      .eq('username', username)
+      .maybeSingle();
 
-    // Se houver password na requisição (caso seja login), valida também
-    if (password !== undefined) {
-      query = query.eq('password', password);
+    if (profileError) {
+      throw profileError;
     }
 
-    const { data: profile, error } = await query.maybeSingle();
-
-    if (error) {
-      throw error;
+    if (!profileData) {
+      return res.status(404).json({ message: 'Utilizador não encontrado.' });
     }
 
-    if (!profile) {
-      return res.status(404).json({ message: 'Utilizador não encontrado ou palavra-passe incorreta.' });
+    const userId = profileData.id;
+
+    // 2. Busca em paralelo as credenciais e os dados das tabelas secundárias
+    const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
+      supabase.from('user_credentials').select('*').eq('id', userId).maybeSingle(),
+      supabase.from('user_properties').select('*').eq('user_id', userId),
+      supabase.from('user_unlocks').select('*').eq('user_id', userId),
+      supabase.from('user_history').select('*').eq('user_id', userId)
+    ]);
+
+    const credsData = credsRes.data;
+
+    // Se a password foi enviada na requisição, valida contra as credenciais reais
+    if (password !== undefined && credsData && credsData.password !== password) {
+      return res.status(401).json({ message: 'Palavra-passe incorreta.' });
     }
 
-    // Retorna formatado exatamente igual
-    return res.status(200).json(formatProfileObject(profile));
+    let propertiesData = null;
+    if (propertiesRes.data) {
+      propertiesData = Array.isArray(propertiesRes.data) ? propertiesRes.data[0] : propertiesRes.data;
+    }
+
+    const formattedHistory = Array.isArray(historyRes.data) 
+      ? historyRes.data.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) 
+      : [];
+
+    // Retorna formatado exatamente igual ao padrão do Unity
+    return res.status(200).json(formatProfileObject(profileData, credsData, propertiesData, unlocksRes.data, formattedHistory));
 
   } catch (err) {
     return res.status(500).json({
@@ -70,49 +83,42 @@ export default async function handler(req, res) {
   }
 }
 
-// Função de formatação idêntica para manter o padrão no Unity
-function formatProfileObject(data) {
+// Função de formatação atualizada com os novos campos e tabelas corretas
+function formatProfileObject(profile, creds, properties, unlocks, history) {
   let props = null;
-  if (data.user_properties) {
-    if (Array.isArray(data.user_properties) && data.user_properties.length > 0) {
-      props = data.user_properties[0];
-    } else if (!Array.isArray(data.user_properties)) {
-      props = data.user_properties;
-    }
+  if (properties) {
+    props = {
+      user_id: properties.user_id || profile.id,
+      handful: Number(properties.handful || 0),
+      bombs: Number(properties.bombs || 0),
+      university: Number(properties.university || 0),
+      energy: Number(properties.energy || 0)
+    };
   }
 
-  const unlocksList = Array.isArray(data.user_unlocks) 
-    ? data.user_unlocks.map(u => u.unlock_key || u.key || JSON.stringify(u)) 
-    : [];
-
-  const historyList = Array.isArray(data.user_history) 
-    ? data.user_history.map(h => h.event_name || h.description || JSON.stringify(h)) 
-    : [];
+  const unlocksList = Array.isArray(unlocks) ? unlocks : [];
+  const historyList = Array.isArray(history) ? history : [];
 
   return {
-    id: data.id || '',
-    username: data.username || '',
-    nickname: data.nickname || '',
-    gender: Number(data.gender || 0),
-    birthday: data.birthday || '',
-    location: Number(data.location_id ?? data.location ?? 0),
-    authenticator: Number(data.authenticator || 0),
-    score: Number(data.score || 0),
-    status: Number(data.status ?? 1),
-    email: data.email || '',
-    tokenfacebook: data.tokenfacebook || '000000000',
-    properties: props ? {
-      user_id: props.user_id || data.id,
-      handful: Number(props.handful || 0),
-      bombs: Number(props.bombs || 0),
-      university: Number(props.university || 0),
-      energy: Number(props.energy || 0)
-    } : null,
-    avatar_id: data.avatar_id || '',
+    id: profile.id || '',
+    username: profile.username || '',
+    nickname: profile.nickname || '',
+    gender: Number(profile.gender || 0),
+    birthday: profile.birthday || '',
+    location: Number(profile.location_id ?? profile.location ?? 0),
+    authenticator: Number(creds?.authenticator || 0),
+    score: Number(profile.score || 0),
+    status: Number(profile.status ?? 1),
+    email: creds?.email || '',
+    tokenfacebook: creds?.tokenfacebook || '000000000',
+    is_admin: Boolean(profile.is_admin),                     // <--- Incluído
+    nickname_updated_at: profile.nickname_updated_at || '',   // <--- Incluído
+    properties: props,
+    avatar_id: profile.avatar_id || '',
     unlocks: unlocksList,
     history: historyList,
-    created_at: data.created_at || '',
-    updated_at: data.updated_at || '',
-    password: data.password || ''
+    created_at: profile.created_at || '',
+    updated_at: profile.updated_at || '',
+    password: creds?.password || ''
   };
 }
