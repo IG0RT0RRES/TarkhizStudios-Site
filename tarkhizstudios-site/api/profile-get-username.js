@@ -43,12 +43,13 @@ export default async function handler(req, res) {
 
     const userId = profileData.id;
 
-    // 2. Busca em paralelo as credenciais e os dados das tabelas secundárias
-    const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
+    // 2. Busca em paralelo as credenciais, propriedades, unlocks, histórico e progresso
+    const [credsRes, propertiesRes, unlocksRes, historyRes, progressRes] = await Promise.all([
       supabase.from('user_credentials').select('*').eq('id', userId).maybeSingle(),
       supabase.from('user_properties').select('*').eq('user_id', userId),
       supabase.from('user_unlocks').select('*').eq('user_id', userId),
-      supabase.from('user_history').select('*').eq('user_id', userId)
+      supabase.from('user_history').select('*').eq('user_id', userId),
+      supabase.from('user_progress').select('*').eq('user_id', userId)
     ]);
 
     let propertiesData = null;
@@ -68,7 +69,15 @@ export default async function handler(req, res) {
         })) 
       : [];
 
-    // 3. Monta o objeto de resposta incluindo os novos campos
+    // Mapeia o progresso garantindo o tratamento correto do campo completed
+    const formattedProgress = Array.isArray(progressRes.data)
+      ? progressRes.data.map(p => ({
+          ...p,
+          completed: Boolean(p.completed) // Assegura que é booleano (true/false)
+        }))
+      : [];
+
+    // 3. Monta o objeto de resposta completo incluindo os campos de progresso
     const profileResponse = {
       id: userId,
       username: profileData.username || '',
@@ -81,8 +90,8 @@ export default async function handler(req, res) {
       status: Number(profileData.status ?? 1),
       email: credsRes.data?.email || '',
       tokenfacebook: credsRes.data?.tokenfacebook || '000000000',
-      is_admin: Boolean(profileData.is_admin),                     // <--- Adicionado com mapeamento booleano seguro
-      nickname_updated_at: profileData.nickname_updated_at || '',   // <--- Adicionado com fallback de string vazia
+      is_admin: Boolean(profileData.is_admin),
+      nickname_updated_at: profileData.nickname_updated_at || '',
       properties: propertiesData ? {
         user_id: propertiesData.user_id || userId,
         handful: Number(propertiesData.handful || 0),
@@ -93,6 +102,7 @@ export default async function handler(req, res) {
       avatar_id: profileData.avatar_id || '',
       unlocks: unlocksRes.data || [],
       history: formattedHistory,
+      progress: formattedProgress, // <--- Progresso incluído no retorno para o Unity
       created_at: profileData.created_at || '',
       updated_at: profileData.updated_at || '',
       password: credsRes.data?.password || ''
