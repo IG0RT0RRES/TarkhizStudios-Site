@@ -154,15 +154,22 @@ export default async function handler(req, res) {
     }
 
     // 5. Inserção em 'user_history'
+    // Formata a data atual (nowIso) para o formato DD/MM/YYYY
+    const currentDateObj = new Date(nowIso);
+    const day = String(currentDateObj.getDate()).padStart(2, '0');
+    const month = String(currentDateObj.getMonth() + 1).padStart(2, '0');
+    const year = currentDateObj.getFullYear();
+    const formattedDate = `${day}/${month}/${year}`;
+
     const { data: historyData, error: historyError } = await supabase
       .from('user_history')
       .insert([{ 
         user_id: newUserId, 
-        event_name: 'NewUser', 
-        description: 'Registrou-se com sucesso na plataforma.', 
+        event_name: 'Register', 
+        description: `Registrou-se com sucesso na plataforma em ${formattedDate}.`, 
         icon_name: 'NewPlayer', 
         is_conquest: true, 
-        created_at: nowIso 
+        created_at: nowIso // Mantém a data/hora exata no campo de controle da tabela
       }])
       .select();
 
