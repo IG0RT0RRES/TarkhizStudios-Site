@@ -95,11 +95,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ status: 401, message: 'Senha incorreta' });
     }
 
-    // 3. Busca em paralelo os dados das outras tabelas
-    const [propertiesRes, unlocksRes, historyRes] = await Promise.all([
+    // 3. Busca em paralelo os dados de todas as sub-tabelas (incluindo user_progress)
+    const [propertiesRes, unlocksRes, historyRes, progressRes] = await Promise.all([
       supabase.from('user_properties').select('*').eq('user_id', userId),
       supabase.from('user_unlocks').select('*').eq('user_id', userId),
-      supabase.from('user_history').select('*').eq('user_id', userId)
+      supabase.from('user_history').select('*').eq('user_id', userId),
+      supabase.from('user_progress').select('*').eq('user_id', userId)
     ]);
 
     let propertiesData = null;
@@ -119,7 +120,15 @@ export default async function handler(req, res) {
         })) 
       : [];
 
-    // 4. Monta o objeto de resposta completo declarando cada propriedade explicitamente
+    // Mapeia o progresso garantindo o tratamento correto do campo completed
+    const formattedProgress = Array.isArray(progressRes.data)
+      ? progressRes.data.map(p => ({
+          ...p,
+          completed: Boolean(p.completed)
+        }))
+      : [];
+
+    // 4. Monta o objeto de resposta completo com todas as propriedades explícitas
     const profileResponse = {
       id: userId,
       username: profileData.username,
@@ -138,6 +147,7 @@ export default async function handler(req, res) {
       avatar_id: profileData.avatar_id,
       unlocks: unlocksRes.data || [],
       history: formattedHistory,
+      progress: formattedProgress,
       created_at: profileData.created_at,
       updated_at: profileData.updated_at,
       password: credsData.password
