@@ -153,11 +153,12 @@ export default async function handler(req, res) {
       updatedCreds = data;
     }
 
-    // 4. Busca os dados complementares
-    const [propertiesRes, unlocksRes, historyRes] = await Promise.all([
+    // 4. Busca os dados complementares em paralelo (incluindo user_progress)
+    const [propertiesRes, unlocksRes, historyRes, progressRes] = await Promise.all([
       supabase.from('user_properties').select('*').eq('user_id', targetUserId),
       supabase.from('user_unlocks').select('*').eq('user_id', targetUserId),
-      supabase.from('user_history').select('*').eq('user_id', targetUserId)
+      supabase.from('user_history').select('*').eq('user_id', targetUserId),
+      supabase.from('user_progress').select('*').eq('user_id', targetUserId)
     ]);
 
     let propertiesData = null;
@@ -169,13 +170,18 @@ export default async function handler(req, res) {
       ? historyRes.data.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) 
       : [];
 
+    const formattedProgress = Array.isArray(progressRes.data)
+      ? progressRes.data.map(p => ({ ...p, completed: Boolean(p.completed) }))
+      : [];
+
     // 5. Retorna o perfil completo atualizado
     return res.status(200).json(formatProfileObject(
       updatedProfile,
       updatedCreds,
       propertiesData,
       unlocksRes.data || [],
-      formattedHistory
+      formattedHistory,
+      formattedProgress
     ));
 
   } catch (err) {
@@ -186,7 +192,7 @@ export default async function handler(req, res) {
   }
 }
 
-function formatProfileObject(profile, creds, properties, unlocks, history) {
+function formatProfileObject(profile, creds, properties, unlocks, history, progress) {
   return {
     id: profile.id || "",
     username: profile.username || "",
@@ -199,8 +205,8 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     status: Number(profile.status ?? 1),
     email: creds?.email || "",
     tokenfacebook: creds?.tokenfacebook || "000000000",
-    is_admin: Boolean(profile.is_admin),                     // <--- Mapeado com segurança para booleano
-    nickname_updated_at: profile.nickname_updated_at || "",   // <--- Mapeado para string de data/hora
+    is_admin: Boolean(profile.is_admin),
+    nickname_updated_at: profile.nickname_updated_at || "",
     properties: properties ? {
       user_id: properties.user_id || profile.id,
       handful: Number(properties.handful || 0),
@@ -211,6 +217,7 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     avatar_id: profile.avatar_id || "avatar-0",
     unlocks: unlocks || [],
     history: history ? history.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) : [],
+    progress: progress || [], // <--- Incluído no retorno do update
     created_at: profile.created_at || "",
     updated_at: profile.updated_at || "",
     password: creds?.password || ""
