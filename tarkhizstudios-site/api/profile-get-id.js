@@ -48,12 +48,13 @@ export default async function handler(req, res) {
 
     const userId = profileData.id;
 
-    // 2. Busca em paralelo as credenciais e os dados das tabelas secundárias
-    const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
+    // 2. Busca em paralelo as credenciais e os dados das tabelas secundárias (incluindo user_progress)
+    const [credsRes, propertiesRes, unlocksRes, historyRes, progressRes] = await Promise.all([
       supabase.from('user_credentials').select('*').eq('id', userId).maybeSingle(),
       supabase.from('user_properties').select('*').eq('user_id', userId),
       supabase.from('user_unlocks').select('*').eq('user_id', userId),
-      supabase.from('user_history').select('*').eq('user_id', userId)
+      supabase.from('user_history').select('*').eq('user_id', userId),
+      supabase.from('user_progress').select('*').eq('user_id', userId)
     ]);
 
     const credsData = credsRes.data;
@@ -72,8 +73,12 @@ export default async function handler(req, res) {
       ? historyRes.data.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) 
       : [];
 
+    const formattedProgress = Array.isArray(progressRes.data)
+      ? progressRes.data.map(p => ({ ...p, completed: Boolean(p.completed) }))
+      : [];
+
     // Retorna formatado exatamente igual ao padrão do Unity
-    return res.status(200).json(formatProfileObject(profileData, credsData, propertiesData, unlocksRes.data, formattedHistory));
+    return res.status(200).json(formatProfileObject(profileData, credsData, propertiesData, unlocksRes.data, formattedHistory, formattedProgress));
 
   } catch (err) {
     return res.status(500).json({
@@ -83,8 +88,8 @@ export default async function handler(req, res) {
   }
 }
 
-// Função de formatação atualizada com os novos campos e tabelas corretas
-function formatProfileObject(profile, creds, properties, unlocks, history) {
+// Função de formatação atualizada incluindo o progresso do jogador
+function formatProfileObject(profile, creds, properties, unlocks, history, progress) {
   let props = null;
   if (properties) {
     props = {
@@ -98,6 +103,7 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
 
   const unlocksList = Array.isArray(unlocks) ? unlocks : [];
   const historyList = Array.isArray(history) ? history : [];
+  const progressList = Array.isArray(progress) ? progress : [];
 
   return {
     id: profile.id || '',
@@ -111,12 +117,13 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     status: Number(profile.status ?? 1),
     email: creds?.email || '',
     tokenfacebook: creds?.tokenfacebook || '000000000',
-    is_admin: Boolean(profile.is_admin),                     // <--- Incluído
-    nickname_updated_at: profile.nickname_updated_at || '',   // <--- Incluído
+    is_admin: Boolean(profile.is_admin),
+    nickname_updated_at: profile.nickname_updated_at || '',
     properties: props,
     avatar_id: profile.avatar_id || '',
     unlocks: unlocksList,
     history: historyList,
+    progress: progressList, // <--- Progresso integrado na resposta para o Unity
     created_at: profile.created_at || '',
     updated_at: profile.updated_at || '',
     password: creds?.password || ''
