@@ -76,14 +76,23 @@ export default async function handler(req, res) {
     }
 
     if (existingProfile) {
-      const [credsRes, propertiesRes, unlocksRes, historyRes] = await Promise.all([
+      // Busca em paralelo todas as tabelas secundárias, incluindo user_progress
+      const [credsRes, propertiesRes, unlocksRes, historyRes, progressRes] = await Promise.all([
         supabase.from('user_credentials').select('*').eq('id', existingProfile.id).maybeSingle(),
         supabase.from('user_properties').select('*').eq('user_id', existingProfile.id),
         supabase.from('user_unlocks').select('*').eq('user_id', existingProfile.id),
-        supabase.from('user_history').select('*').eq('user_id', existingProfile.id)
+        supabase.from('user_history').select('*').eq('user_id', existingProfile.id),
+        supabase.from('user_progress').select('*').eq('user_id', existingProfile.id)
       ]);
 
-      return res.status(200).json(formatProfileObject(existingProfile, credsRes.data, propertiesRes.data, unlocksRes.data, historyRes.data));
+      return res.status(200).json(formatProfileObject(
+        existingProfile, 
+        credsRes.data, 
+        propertiesRes.data, 
+        unlocksRes.data, 
+        historyRes.data, 
+        progressRes.data
+      ));
     }
 
     if (!password || !email) {
@@ -95,7 +104,7 @@ export default async function handler(req, res) {
     const newUserId = randomUUID();
     const nowIso = new Date().toISOString();
 
-    // 2. Inserção na tabela 'profiles' (incluindo os novos campos is_admin e nickname_updated_at)
+    // 2. Inserção na tabela 'profiles'
     const profileInsertData = {
       id: newUserId,
       username: username,
@@ -105,8 +114,8 @@ export default async function handler(req, res) {
       gender: gender,
       location_id: location,
       status: status,
-      is_admin: false,                  // Novos utilizadores começam como não-admin por defeito
-      nickname_updated_at: null,        // Sem data de atualização prévia
+      is_admin: false,
+      nickname_updated_at: null,
       created_at: nowIso,
       updated_at: nowIso
     };
@@ -154,7 +163,6 @@ export default async function handler(req, res) {
     }
 
     // 5. Inserção em 'user_history'
-    // Formata a data atual (nowIso) para o formato DD/MM/YYYY
     const currentDateObj = new Date(nowIso);
     const day = String(currentDateObj.getDate()).padStart(2, '0');
     const month = String(currentDateObj.getMonth() + 1).padStart(2, '0');
@@ -169,7 +177,7 @@ export default async function handler(req, res) {
         description: `Registrou-se com sucesso na plataforma em ${formattedDate}.`, 
         icon_name: 'NewPlayer', 
         is_conquest: true, 
-        created_at: nowIso // Mantém a data/hora exata no campo de controle da tabela
+        created_at: nowIso 
       }])
       .select();
 
@@ -187,7 +195,8 @@ export default async function handler(req, res) {
       credsData, 
       propertiesData, 
       [], 
-      formattedHistory
+      formattedHistory, 
+      [] // Novo utilizador começa sem registos de progresso prévios
     ));
 
   } catch (err) {
@@ -198,7 +207,15 @@ export default async function handler(req, res) {
   }
 }
 
-function formatProfileObject(profile, creds, properties, unlocks, history) {
+function formatProfileObject(profile, creds, properties, unlocks, history, progress) {
+  const formattedProgress = Array.isArray(progress)
+    ? progress.map(p => ({ ...p, completed: Boolean(p.completed) }))
+    : [];
+
+  const formattedHistory = Array.isArray(history)
+    ? history.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) }))
+    : [];
+
   return {
     id: profile.id || "",
     username: profile.username || "",
@@ -211,8 +228,8 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     status: Number(profile.status ?? 1),
     email: creds?.email || "",
     tokenfacebook: creds?.tokenfacebook || "000000000",
-    is_admin: Boolean(profile.is_admin),                     // <--- Incluído na resposta
-    nickname_updated_at: profile.nickname_updated_at || "",   // <--- Incluído na resposta
+    is_admin: Boolean(profile.is_admin),
+    nickname_updated_at: profile.nickname_updated_at || "",
     properties: properties ? {
       user_id: properties.user_id || profile.id,
       handful: Number(properties.handful || 0),
@@ -222,7 +239,8 @@ function formatProfileObject(profile, creds, properties, unlocks, history) {
     } : null,
     avatar_id: profile.avatar_id || "avatar-0",
     unlocks: unlocks || [],
-    history: history ? history.map(h => ({ ...h, is_conquest: Boolean(h.is_conquest) })) : [],
+    history: formattedHistory,
+    progress: formattedProgress, // <--- Incluído no formatador do Register
     created_at: profile.created_at || "",
     updated_at: profile.updated_at || "",
     password: creds?.password || ""
