@@ -13,12 +13,9 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // --- GET: STATUS DAS QUESTÕES ---
   if (req.method === 'GET') {
     try {
-      // Aceita variações de nome de parâmetro na query
       const userId = req.query?.userid || req.query?.userId || req.query?.UserID;
-
       if (!userId) {
         return res.status(400).json({ status: 400, message: 'ID do utilizador é obrigatório.' });
       }
@@ -32,29 +29,21 @@ export default async function handler(req, res) {
       if (error) throw error;
 
       const questionList = questions || [];
-
-      // Remove questões rejeitadas (status = 2) após recuperar
       const rejectedIds = questionList.filter(q => q.status === 2).map(q => q.id);
       if (rejectedIds.length > 0) {
         await supabase.from('questions').delete().in('id', rejectedIds);
       }
 
-      return res.status(200).json({
-        status: 200,
-        questions: questionList
-      });
-
+      return res.status(200).json({ status: 200, questions: questionList });
     } catch (err) {
-      return res.status(500).json({ status: 500, message: 'Erro ao consultar questões', error: err.message });
+      return res.status(500).json({ status: 500, message: 'Erro no GET', error: err.message });
     }
   }
 
-  // --- POST: NOVA QUESTÃO ---
   if (req.method === 'POST') {
     try {
       const body = req.body || {};
 
-      // Mapeamento flexível para aceitar PascalCase (Unity) e snake_case
       const question = body.Question || body.question;
       const dificulty = body.Dificulty ?? body.dificulty ?? 0;
       const reply_zero = body.ReplyZero || body.reply_zero || '';
@@ -65,27 +54,17 @@ export default async function handler(req, res) {
       const userid = body.UserID || body.userid || body.user_id;
       const explication = body.Explication || body.explication || '';
 
-      // Validação
+      // LOG de depuração na Vercel
+      console.log("Dados recebidos:", { question, userid, author });
+
       if (!question || !userid) {
         return res.status(400).json({ 
           status: 400, 
           message: 'A questão e o ID do utilizador são obrigatórios.',
-          receivedData: body // Ajuda a depurar nos logs da Vercel
+          receivedBody: body 
         });
       }
 
-      // Verifica se a questão já existe
-      const { data: existingQuestion } = await supabase
-        .from('questions')
-        .select('id')
-        .eq('question', question)
-        .maybeSingle();
-
-      if (existingQuestion) {
-        return res.status(200).json({ status: 200, id: -1, message: 'Esta questão já foi enviada.' });
-      }
-
-      // Inserção no Supabase
       const newQuestionData = {
         question: question,
         dificulty: Number(dificulty),
@@ -96,7 +75,7 @@ export default async function handler(req, res) {
         author: author,
         user_id: userid,
         explication: explication,
-        status: 0 // Pendente
+        status: 0
       };
 
       const { data: insertResult, error: insertError } = await supabase
@@ -105,7 +84,10 @@ export default async function handler(req, res) {
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error("Erro do Supabase ao inserir:", insertError);
+        return res.status(400).json({ status: 400, message: 'Erro ao inserir no Supabase', supabaseError: insertError.message });
+      }
 
       return res.status(200).json({
         status: 200,
@@ -114,6 +96,7 @@ export default async function handler(req, res) {
       });
 
     } catch (err) {
+      console.error("Erro interno no POST:", err);
       return res.status(500).json({ status: 500, message: 'Erro interno ao salvar questão', error: err.message });
     }
   }
