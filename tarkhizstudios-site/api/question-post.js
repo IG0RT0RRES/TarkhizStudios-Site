@@ -13,71 +13,68 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // --- TRATAMENTO PARA O MÉTODO GET (Verificação de Status + Autolimpeza de Rejeitadas) ---
+  // --- GET: STATUS DAS QUESTÕES ---
   if (req.method === 'GET') {
     try {
-      const userId = req.query?.userid || req.query?.userId;
+      // Aceita variações de nome de parâmetro na query
+      const userId = req.query?.userid || req.query?.userId || req.query?.UserID;
 
       if (!userId) {
-        return res.status(400).json({ status: 400, message: 'O ID do usuário é obrigatório para consulta.' });
+        return res.status(400).json({ status: 400, message: 'ID do utilizador é obrigatório.' });
       }
 
-      // 1. Busca as questões do usuário na tabela 'questions'
       const { data: questions, error } = await supabase
         .from('questions')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       const questionList = questions || [];
 
-      // 2. Identifica os IDs das questões que foram REJEITADAS (status = 2)
-      const rejectedIds = questionList
-        .filter(q => q.status === 2)
-        .map(q => q.id);
-
-      // 3. Deleta do Supabase as questões rejeitadas para limpar o banco
+      // Remove questões rejeitadas (status = 2) após recuperar
+      const rejectedIds = questionList.filter(q => q.status === 2).map(q => q.id);
       if (rejectedIds.length > 0) {
-        await supabase
-          .from('questions')
-          .delete()
-          .in('id', rejectedIds);
+        await supabase.from('questions').delete().in('id', rejectedIds);
       }
 
-      // 4. Retorna a lista original para o Unity exibir a notificação de rejeição ao jogador
       return res.status(200).json({
         status: 200,
         questions: questionList
       });
 
     } catch (err) {
-      return res.status(500).json({ status: 500, message: 'Erro ao buscar questões', error: err.message });
+      return res.status(500).json({ status: 500, message: 'Erro ao consultar questões', error: err.message });
     }
   }
 
-  // --- TRATAMENTO PARA O MÉTODO POST (Envio de Questão) ---
+  // --- POST: NOVA QUESTÃO ---
   if (req.method === 'POST') {
     try {
-      const {
-        question,
-        dificulty,
-        reply_zero,
-        reply_one,
-        reply_two,
-        reply_three,
-        author,
-        userid,
-        explication
-      } = req.body || {};
+      const body = req.body || {};
 
+      // Mapeamento flexível para aceitar PascalCase (Unity) e snake_case
+      const question = body.Question || body.question;
+      const dificulty = body.Dificulty ?? body.dificulty ?? 0;
+      const reply_zero = body.ReplyZero || body.reply_zero || '';
+      const reply_one = body.ReplyOne || body.reply_one || '';
+      const reply_two = body.ReplyTwo || body.reply_two || '';
+      const reply_three = body.ReplyThree || body.reply_three || '';
+      const author = body.Author || body.author || 'Desconhecido';
+      const userid = body.UserID || body.userid || body.user_id;
+      const explication = body.Explication || body.explication || '';
+
+      // Validação
       if (!question || !userid) {
-        return res.status(400).json({ status: 400, message: 'A questão e o ID do autor são obrigatórios.' });
+        return res.status(400).json({ 
+          status: 400, 
+          message: 'A questão e o ID do utilizador são obrigatórios.',
+          receivedData: body // Ajuda a depurar nos logs da Vercel
+        });
       }
 
+      // Verifica se a questão já existe
       const { data: existingQuestion } = await supabase
         .from('questions')
         .select('id')
@@ -85,20 +82,21 @@ export default async function handler(req, res) {
         .maybeSingle();
 
       if (existingQuestion) {
-        return res.status(200).json({ status: 200, id: -1, message: 'Essa questão já foi enviada.' });
+        return res.status(200).json({ status: 200, id: -1, message: 'Esta questão já foi enviada.' });
       }
 
+      // Inserção no Supabase
       const newQuestionData = {
-        question,
-        dificulty: Number(dificulty || 0),
-        reply_zero: reply_zero || '',
-        reply_one: reply_one || '',
-        reply_two: reply_two || '',
-        reply_three: reply_three || '',
-        author: author || 'Desconhecido',
+        question: question,
+        dificulty: Number(dificulty),
+        reply_zero: reply_zero,
+        reply_one: reply_one,
+        reply_two: reply_two,
+        reply_three: reply_three,
+        author: author,
         user_id: userid,
-        explication: explication || '',
-        status: 0 // 0 = Pendente
+        explication: explication,
+        status: 0 // Pendente
       };
 
       const { data: insertResult, error: insertError } = await supabase
@@ -116,7 +114,7 @@ export default async function handler(req, res) {
       });
 
     } catch (err) {
-      return res.status(500).json({ status: 500, message: 'Erro interno ao salvar a questão', error: err.message });
+      return res.status(500).json({ status: 500, message: 'Erro interno ao salvar questão', error: err.message });
     }
   }
 
