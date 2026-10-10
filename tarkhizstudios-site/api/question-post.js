@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // --- TRATAMENTO PARA O MÉTODO GET (Verificação de Status) ---
+  // --- TRATAMENTO PARA O MÉTODO GET (Verificação de Status + Autolimpeza de Rejeitadas) ---
   if (req.method === 'GET') {
     try {
       const userId = req.query?.userid || req.query?.userId;
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ status: 400, message: 'O ID do usuário é obrigatório para consulta.' });
       }
 
-      // Busca as questões do usuário na tabela 'questions'
+      // 1. Busca as questões do usuário na tabela 'questions'
       const { data: questions, error } = await supabase
         .from('questions')
         .select('*')
@@ -33,9 +33,25 @@ export default async function handler(req, res) {
         throw error;
       }
 
+      const questionList = questions || [];
+
+      // 2. Identifica os IDs das questões que foram REJEITADAS (status = 2)
+      const rejectedIds = questionList
+        .filter(q => q.status === 2)
+        .map(q => q.id);
+
+      // 3. Deleta do Supabase as questões rejeitadas para limpar o banco
+      if (rejectedIds.length > 0) {
+        await supabase
+          .from('questions')
+          .delete()
+          .in('id', rejectedIds);
+      }
+
+      // 4. Retorna a lista original para o Unity exibir a notificação de rejeição ao jogador
       return res.status(200).json({
         status: 200,
-        questions: questions || []
+        questions: questionList
       });
 
     } catch (err) {
@@ -43,7 +59,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // --- TRATAMENTO PARA O MÉTODO POST (Envio de Questão - Código Anterior) ---
+  // --- TRATAMENTO PARA O MÉTODO POST (Envio de Questão) ---
   if (req.method === 'POST') {
     try {
       const {
@@ -59,7 +75,7 @@ export default async function handler(req, res) {
       } = req.body || {};
 
       if (!question || !userid) {
-        return res.status(400).json({ status: 400, message: 'A questão e o ID/Usuário do autor são obrigatórios.' });
+        return res.status(400).json({ status: 400, message: 'A questão e o ID do autor são obrigatórios.' });
       }
 
       const { data: existingQuestion } = await supabase
@@ -82,7 +98,7 @@ export default async function handler(req, res) {
         author: author || 'Desconhecido',
         user_id: userid,
         explication: explication || '',
-        status: 0
+        status: 0 // 0 = Pendente
       };
 
       const { data: insertResult, error: insertError } = await supabase
