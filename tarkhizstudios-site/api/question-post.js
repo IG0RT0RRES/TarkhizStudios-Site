@@ -13,6 +13,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
+  // --- TRATAMENTO PARA O MÉTODO GET (Verificação de Status + Autolimpeza de Rejeitadas) ---
   if (req.method === 'GET') {
     try {
       const userId = req.query?.userid || req.query?.userId || req.query?.UserID;
@@ -28,8 +29,24 @@ export default async function handler(req, res) {
 
       if (error) throw error;
 
-      const questionList = questions || [];
-      const rejectedIds = questionList.filter(q => q.status === 2).map(q => q.id);
+      // Mapeia os dados para garantir compatibilidade com as propriedades do Unity (incluindo created_at e status)
+      const questionList = (questions || []).map(q => ({
+        Id: q.id,
+        Question: q.question,
+        Dificulty: q.dificulty,
+        ReplyZero: q.reply_zero,
+        ReplyOne: q.reply_one,
+        ReplyTwo: q.reply_two,
+        ReplyThree: q.reply_three,
+        Author: q.author,
+        UserID: q.user_id,
+        Explication: q.explication,
+        StatusValue: q.status,
+        Created_at: q.created_at ? new Date(q.created_at).toLocaleString('pt-BR') : ''
+      }));
+
+      // Identifica e remove do Supabase as questões rejeitadas (status = 2) após recuperá-las
+      const rejectedIds = (questions || []).filter(q => q.status === 2).map(q => q.id);
       if (rejectedIds.length > 0) {
         await supabase.from('questions').delete().in('id', rejectedIds);
       }
@@ -40,6 +57,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // --- TRATAMENTO PARA O MÉTODO POST (Envio de Nova Questão) ---
   if (req.method === 'POST') {
     try {
       const body = req.body || {};
@@ -54,15 +72,23 @@ export default async function handler(req, res) {
       const userid = body.UserID || body.userid || body.user_id;
       const explication = body.Explication || body.explication || '';
 
-      // LOG de depuração na Vercel
-      console.log("Dados recebidos:", { question, userid, author });
-
       if (!question || !userid) {
         return res.status(400).json({ 
           status: 400, 
           message: 'A questão e o ID do utilizador são obrigatórios.',
           receivedBody: body 
         });
+      }
+
+      // Opcional: Evitar duplicadas exatas
+      const { data: existingQuestion } = await supabase
+        .from('questions')
+        .select('id')
+        .eq('question', question)
+        .maybeSingle();
+
+      if (existingQuestion) {
+        return res.status(200).json({ status: 200, id: -1, message: 'Esta questão já foi enviada.' });
       }
 
       const newQuestionData = {
@@ -75,7 +101,7 @@ export default async function handler(req, res) {
         author: author,
         user_id: userid,
         explication: explication,
-        status: 0
+        status: 0 // 0 = Pendente
       };
 
       const { data: insertResult, error: insertError } = await supabase
